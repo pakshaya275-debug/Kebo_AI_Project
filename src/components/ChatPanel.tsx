@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Send } from 'lucide-react';
-import { EMOTIONS, type Message } from '@/types/kebo';
+import { EMOTIONS, type Message } from '../types/kebo';
 
 interface ChatPanelProps {
   messages: Message[];

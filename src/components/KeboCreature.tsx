@@ -1,4 +1,4 @@
-import { EMOTIONS, type Activity, type EmotionKey } from '@/types/kebo';
+import { EMOTIONS, type Activity, type EmotionKey } from '../types/kebo';
 
 interface KeboCreatureProps {
   emotion: EmotionKey;
@@ -49,7 +49,7 @@ export function KeboCreature({ emotion, activity, energy, size = 220 }: KeboCrea
           <div className="kebo-face">
             <KeboEyes mood={face} lowEnergy={lowEnergy} />
             <div className={`kebo-mouth kebo-mouth-${face}`} />
-            {(face === 'happy' || face === 'playful') && <><span className="kebo-cheek cheek-left" /><span className="kebo-cheek cheek-right" /></>}
+            {face === 'happy' && <><span className="kebo-cheek cheek-left" /><span className="kebo-cheek cheek-right" /></>}
             {face === 'curious' && <span className="kebo-curious-mark">?</span>}
           </div>
         </div>

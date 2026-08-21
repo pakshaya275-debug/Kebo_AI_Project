@@ -1,10 +1,11 @@
-import { EMOTIONS, type VitalStats } from '@/types/kebo';
+import type { ReactNode } from 'react';
+import { EMOTIONS, type VitalStats } from '../types/kebo';
 
 interface StatBarProps {
   label: string;
   value: number;
   color: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
 }
 
 function StatBar({ label, value, color, icon }: StatBarProps) {

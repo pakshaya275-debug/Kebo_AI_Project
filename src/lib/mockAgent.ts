@@ -1,5 +1,5 @@
-import type { EmotionKey, KeboState, Personality } from '@/types/kebo';
-import { EMOTIONS } from '@/types/kebo';
+import type { EmotionKey, KeboState, Personality } from '../types/kebo';
+import { EMOTIONS } from '../types/kebo';
 
 interface Intent {
   keywords: string[];
@@ -187,7 +187,10 @@ export function mockAgentRespond(
 ): { text: string; emotion: EmotionKey } {
   const lower = userText.toLowerCase().trim();
   for (const intent of INTENTS) {
-    if (intent.keywords.some((kw) => lower.includes(kw))) {
+    if (intent.keywords.some((kw) => {
+      const pattern = kw.includes(' ') ? kw : `\\b${kw}\\b`;
+      return new RegExp(pattern, 'i').test(lower);
+    })) {
       return intent.reply(state, userText);
     }
   }

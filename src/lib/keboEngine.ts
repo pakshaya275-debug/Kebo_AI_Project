@@ -3,7 +3,7 @@ import {
   type EmotionKey,
   type KeboState,
   type VitalStats,
-} from '@/types/kebo';
+} from '../types/kebo';
 
 /**
  * Clamp a number between min and max.

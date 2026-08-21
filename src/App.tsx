@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Gamepad2, UtensilsCrossed, Moon, Sparkles, Info } from 'lucide-react';
-import { KeboCreature } from '@/components/KeboCreature';
-import { ChatPanel } from '@/components/ChatPanel';
-import { EmotionBadge, VitalStatsPanel } from '@/components/VitalStatsPanel';
-import { useKebo } from '@/hooks/useKebo';
-import { EMOTIONS } from '@/types/kebo';
+import { KeboCreature } from './components/KeboCreature';
+import { ChatPanel } from './components/ChatPanel';
+import { EmotionBadge, VitalStatsPanel } from './components/VitalStatsPanel';
+import { useKebo } from './hooks/useKebo';
+import { EMOTIONS } from './types/kebo';
 
 function App() {
   const { state, messages, isThinking, sendMessage, doActivity } = useKebo();
@@ -86,7 +86,7 @@ function App() {
 }
 
 interface ActionButtonProps {
-  icon: React.ReactNode;
+  icon: ReactNode;
   label: string;
   onClick: () => void;
   accent: string;

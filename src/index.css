@@ -1,0 +1,175 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-0: #07140d;
+  --bg-1: #0e2418;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  background: radial-gradient(ellipse at 30% 20%, #143a28 0%, var(--bg-0) 55%);
+  color: #e5e7eb;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------- Kebo creature animations ---------- */
+
+.kebo-creature {
+  position: relative;
+  display: inline-block;
+  transition: filter 0.6s ease;
+  will-change: transform;
+}
+
+.kebo-breathe {
+  animation: kebo-breathe 4s ease-in-out infinite;
+}
+@keyframes kebo-breathe {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.025); }
+}
+
+.kebo-talk {
+  animation: kebo-talk 0.5s ease-in-out infinite;
+}
+@keyframes kebo-talk {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50%      { transform: translateY(-3px) scale(1.015); }
+}
+
+.kebo-think {
+  animation: kebo-think 2.5s ease-in-out infinite;
+}
+@keyframes kebo-think {
+  0%, 100% { transform: rotate(-1deg) scale(1); }
+  50%      { transform: rotate(1deg) scale(1.01); }
+}
+.kebo-thought-dots {
+  animation: kebo-fade-pulse 1.4s ease-in-out infinite;
+}
+
+.kebo-play {
+  animation: kebo-play 0.6s cubic-bezier(0.25, 1.5, 0.5, 1) infinite;
+}
+@keyframes kebo-play {
+  0%, 100% { transform: translateY(0) rotate(-3deg); }
+  50%      { transform: translateY(-14px) rotate(3deg); }
+}
+
+.kebo-rest {
+  animation: kebo-rest 5s ease-in-out infinite;
+}
+@keyframes kebo-rest {
+  0%, 100% { transform: scale(0.97) translateY(4px); }
+  50%      { transform: scale(1.0) translateY(0); }
+}
+.kebo-zzz {
+  animation: kebo-float-up 3s ease-in-out infinite;
+}
+
+.kebo-aura {
+  animation: kebo-aura 3s ease-in-out infinite;
+  transform-origin: 110px 110px;
+}
+@keyframes kebo-aura {
+  0%, 100% { opacity: 0.6; transform: scale(1); }
+  50%      { opacity: 0.9; transform: scale(1.08); }
+}
+
+@keyframes kebo-fade-pulse {
+  0%, 100% { opacity: 0.4; }
+  50%      { opacity: 1; }
+}
+@keyframes kebo-float-up {
+  0%   { opacity: 0; transform: translateY(6px); }
+  50%  { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-10px); }
+}
+
+/* ---------- Scrollbars ---------- */
+.kebo-scroll::-webkit-scrollbar { width: 6px; }
+.kebo-scroll::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.3); border-radius: 3px; }
+.kebo-scroll::-webkit-scrollbar-track { background: transparent; }
+
+/* ---------- Message fade-in ---------- */
+@keyframes msg-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.msg-in { animation: msg-in 0.3s ease-out; }
+
+/* ---------- Stat bar ---------- */
+@keyframes stat-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.7; }
+}
+.stat-low { animation: stat-pulse 1.6s ease-in-out infinite; }
+
+/* ---------- Kebo 3D character ---------- */
+.kebo-3d { perspective: 700px; filter: drop-shadow(0 18px 16px rgba(0, 0, 0, 0.22)); }
+.kebo-3d-model { position: relative; width: 100%; height: 100%; transform-style: preserve-3d; transform: rotateY(-8deg) rotateX(3deg); }
+.kebo-3d-shadow { position: absolute; left: 17%; right: 17%; bottom: 4%; height: 8%; border-radius: 50%; background: rgba(4, 20, 34, 0.45); filter: blur(8px); transform: rotateX(65deg); }
+.kebo-head { position: absolute; z-index: 4; left: 22%; top: 11%; width: 56%; height: 49%; border-radius: 48% 52% 45% 47%; background: linear-gradient(145deg, #baffd9 0%, #68e7ba 42%, #31b890 78%, #258d78 100%); box-shadow: inset 12px 10px 15px rgba(227, 255, 239, 0.52), inset -13px -12px 20px rgba(10, 111, 101, 0.35), 10px 13px 0 rgba(23, 116, 106, 0.17); transform: translateZ(20px); }
+.kebo-face { position: absolute; inset: 26% 13% 10%; border-radius: 46% 48% 45% 45%; background: linear-gradient(135deg, #d8ffe4 0%, #b0f2ce 55%, #82d9ba 100%); box-shadow: inset 4px 4px 9px rgba(255,255,255,.55), inset -7px -9px 13px rgba(51, 140, 125, .22); }
+.kebo-hair-back { position: absolute; z-index: 2; left: 15%; top: 14%; width: 70%; height: 48%; border-radius: 50% 50% 42% 42%; background: linear-gradient(145deg, #91f7cf, #39c99d 65%, #219276); box-shadow: inset 10px 5px 12px rgba(223,255,237,.35), 8px 12px 0 rgba(18, 105, 93, .18); transform: translateZ(5px); }
+.hair-lock { position: absolute; bottom: -12%; width: 28%; height: 48%; border-radius: 20% 70% 65% 50%; background: linear-gradient(145deg, #8ff6cb, #35bd95 80%); }
+.hair-lock-left { left: -5%; transform: rotate(23deg); }
+.hair-lock-right { right: -5%; transform: scaleX(-1) rotate(23deg); }
+.kebo-hair-top { position: absolute; z-index: 5; left: 8%; top: -16%; width: 84%; height: 38%; }
+.hair-spike { position: absolute; display: block; background: linear-gradient(145deg, #a5ffda, #42ca9f 75%); box-shadow: inset 5px 4px 7px rgba(234,255,241,.45), 4px 5px 0 rgba(26, 132, 111, .12); }
+.hair-spike-left { left: 3%; top: 33%; width: 34%; height: 85%; border-radius: 20% 60% 15% 70%; transform: rotate(24deg); }
+.hair-spike-center { left: 33%; top: 0; width: 34%; height: 100%; border-radius: 70% 70% 20% 55%; transform: rotate(-2deg); }
+.hair-spike-right { right: 1%; top: 25%; width: 34%; height: 85%; border-radius: 60% 20% 70% 15%; transform: rotate(-24deg); }
+.kebo-eyes { position: absolute; left: 22%; right: 22%; top: 36%; display: flex; justify-content: space-between; align-items: center; }
+.kebo-eyes span { width: 16%; aspect-ratio: .7; border-radius: 50%; background: radial-gradient(circle at 38% 27%, #fff 0 15%, #527b78 17% 48%, #234c53 52% 100%); box-shadow: 2px 3px 3px rgba(20, 91, 85, .25); }
+.kebo-eyes-happy { top: 38%; }
+.kebo-eyes-happy span { height: 18px; border-radius: 100% 100% 0 0; background: transparent; border-top: 3px solid #345d62; box-shadow: none; }
+.kebo-eyes-angry span { transform: rotate(35deg); }
+.kebo-eyes-angry span:last-child { transform: rotate(-35deg); }
+.kebo-eyes-sad { top: 40%; }
+.kebo-eyes-sad span { height: 11px; transform: scaleY(.62); }
+.kebo-eyes-wide span { width: 19%; aspect-ratio: .65; }
+.kebo-eyes-low span { transform: scaleY(.7); }
+.kebo-eyes-low span:last-child { transform: scaleY(.7); }
+.kebo-mouth { position: absolute; left: 44%; top: 63%; width: 13%; height: 8%; border-radius: 50%; border: 2px solid #548d83; background: rgba(108, 197, 164, .28); }
+.kebo-mouth-happy, .kebo-mouth-playful { left: 36%; width: 29%; height: 15%; border: 2px solid #488778; border-top: 0; border-radius: 0 0 50% 50%; }
+.kebo-mouth-sad { border-bottom: 0; border-radius: 50% 50% 0 0; top: 69%; }
+.kebo-mouth-angry { width: 22%; height: 2px; border: 0; border-radius: 0; background: #548d83; transform: rotate(-5deg); }
+.kebo-mouth-tired { height: 2px; border: 0; border-radius: 0; background: #548d83; }
+.kebo-cheek { position: absolute; top: 63%; width: 14%; height: 8%; border-radius: 50%; background: rgba(255, 137, 155, .35); filter: blur(1px); }
+.cheek-left { left: 10%; }
+.cheek-right { right: 10%; }
+.kebo-curious-mark { position: absolute; right: 4%; top: 13%; color: #3e847d; font-size: 17px; font-weight: 800; transform: rotate(12deg); }
+.kebo-neck { position: absolute; z-index: 2; left: 44%; top: 55%; width: 12%; height: 11%; background: linear-gradient(90deg, #4ec59d, #a4f6cf 48%, #30a886); border-radius: 25%; transform: translateZ(5px); }
+.kebo-torso { position: absolute; z-index: 3; left: 34%; top: 60%; width: 32%; height: 29%; border-radius: 45% 45% 36% 36%; background: linear-gradient(115deg, #9cf6cf 0%, #4dd1a5 53%, #218b7d 100%); box-shadow: inset 6px 5px 10px rgba(232,255,241,.5), inset -8px -8px 14px rgba(16, 101, 96, .3); transform: translateZ(14px); }
+.kebo-chest-glow { position: absolute; left: 28%; top: 18%; width: 44%; height: 26%; border-radius: 50%; background: radial-gradient(circle, rgba(219,255,230,.8), transparent 70%); }
+.kebo-collar { position: absolute; left: 25%; top: -4%; width: 50%; height: 17%; border-radius: 50%; border: 3px solid rgba(34, 132, 119, .35); }
+.kebo-arm { position: absolute; z-index: 2; top: 63%; width: 11%; height: 24%; border-radius: 50% 50% 42% 48%; background: linear-gradient(135deg, #a1f6d0, #43c699 75%, #238b7a); transform: translateZ(7px); }
+.kebo-arm-left { left: 25%; transform: rotate(19deg) translateZ(7px); }
+.kebo-arm-right { right: 25%; transform: rotate(-19deg) translateZ(7px); }
+.kebo-hand { position: absolute; bottom: -7%; left: 12%; width: 76%; height: 36%; border-radius: 50% 50% 35% 35%; background: inherit; }
+.kebo-leg { position: absolute; z-index: 1; top: 82%; width: 12%; height: 15%; border-radius: 20% 20% 45% 45%; background: linear-gradient(90deg, #6bcdb0, #c3f8d9 45%, #399f91); }
+.kebo-leg-left { left: 37%; transform: rotate(10deg); }
+.kebo-leg-right { right: 37%; transform: rotate(-10deg); }
+.kebo-boot { position: absolute; z-index: -1; bottom: -35%; left: -40%; width: 180%; height: 48%; border-radius: 50%; background: linear-gradient(145deg, #c5e9b9, #8ebd9b); box-shadow: inset 4px 4px 5px rgba(245,255,226,.7), 2px 4px 0 rgba(29, 101, 96, .18); }
+.kebo-thought-3d { position: absolute; z-index: 7; right: 5%; top: 8%; display: flex; gap: 4px; align-items: flex-end; }
+.kebo-thought-3d i { display: block; width: 7px; height: 7px; border-radius: 50%; background: var(--kebo-accent); animation: kebo-fade-pulse 1.4s ease-in-out infinite; }
+.kebo-thought-3d i:nth-child(2) { width: 5px; height: 5px; animation-delay: .15s; }
+.kebo-thought-3d i:nth-child(3) { width: 3px; height: 3px; animation-delay: .3s; }
+.kebo-zzz-3d { position: absolute; z-index: 7; right: 2%; top: 7%; color: var(--kebo-accent); font: 800 17px system-ui; animation: kebo-float-up 3s ease-in-out infinite; }
+.kebo-zzz-3d span { font-size: 13px; vertical-align: 8px; }
+.kebo-zzz-3d b { font-size: 10px; vertical-align: 15px; }
+
+/* ---------- Typing dots ---------- */
+@keyframes typing-bounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+  40%           { transform: translateY(-4px); opacity: 1; }
+}
+.typing-dot { animation: typing-bounce 1.2s ease-in-out infinite; }

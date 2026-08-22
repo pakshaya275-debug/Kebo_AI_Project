@@ -33,7 +33,7 @@ export function KeboCreature({ emotion, activity, energy, size = 220 }: KeboCrea
     >
       <div className="kebo-image-aura" />
       <img
-        src="/kebo-transparent.png"
+        src="/kebo-model.png"
         alt="Kebo 3D character"
         className="kebo-model-image"
       />

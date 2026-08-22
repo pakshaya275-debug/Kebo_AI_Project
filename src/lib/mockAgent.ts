@@ -117,7 +117,7 @@ const foodIntent: Intent = {
 
 const curiousIntent: Intent = {
   keywords: ['why', 'how', 'what is', 'explain', 'tell me about', 'curious', 'question', 'teach', 'learn', 'do you know'],
-  reply: (state) => ({
+  reply: () => ({
     text: pick([
       `That's a fascinating question. I'm still young in mind, but I think about it like this: there's always more underneath the surface of things.`,
       `Hmm. I don't have a full answer yet, but I love that you asked. Want to explore it together?`,

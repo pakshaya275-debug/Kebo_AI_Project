@@ -4,7 +4,6 @@ import {
   DEFAULT_STATS,
   EMOTIONS,
   type Activity,
-  type EmotionKey,
   type KeboState,
   type Message,
 } from '../types/kebo';
@@ -126,7 +125,7 @@ export function useKebo() {
     (kind: 'message' | 'play' | 'feed' | 'rest', intensity = 1) => {
       setState((prev) => {
         const now = Date.now();
-        let stats = { ...prev.stats };
+        const stats = { ...prev.stats };
         if (kind === 'message') {
           stats.energy = clamp(stats.energy - 2 * intensity);
           stats.happiness = clamp(stats.happiness + 3 * intensity);

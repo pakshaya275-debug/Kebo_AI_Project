@@ -9,11 +9,8 @@ interface KeboCreatureProps {
 
 export function KeboCreature({ emotion, activity, energy, size = 220 }: KeboCreatureProps) {
   const e = EMOTIONS[emotion];
-<<<<<<< HEAD
   const lowEnergy = energy < 35;
   const face = emotion === 'joy' || emotion === 'playful' ? 'happy' : emotion;
-=======
->>>>>>> e57d7c9187ab7a66e4edc15cf778cdd661344105
   const bodyAnim =
     activity === 'talking'
       ? 'kebo-talk'
@@ -27,24 +24,16 @@ export function KeboCreature({ emotion, activity, energy, size = 220 }: KeboCrea
 
   return (
     <div
-<<<<<<< HEAD
       className={`kebo-creature kebo-3d ${bodyAnim}`}
-=======
-      className={`kebo-creature kebo-image-model ${bodyAnim}`}
->>>>>>> e57d7c9187ab7a66e4edc15cf778cdd661344105
       style={{
         width: size,
         height: size,
         ['--kebo-accent' as string]: e.color,
-<<<<<<< HEAD
         ['--kebo-mood' as string]: e.colorSoft,
-=======
->>>>>>> e57d7c9187ab7a66e4edc15cf778cdd661344105
       }}
       role="img"
       aria-label={`Kebo feeling ${e.label}`}
     >
-<<<<<<< HEAD
       <div className="kebo-3d-shadow" />
       <div className="kebo-3d-model">
         <div className="kebo-hair-back">
@@ -92,20 +81,3 @@ function KeboEyes({ mood, lowEnergy }: { mood: string; lowEnergy: boolean }) {
   }
   return <div className={`kebo-eyes ${mood === 'curious' ? 'kebo-eyes-wide' : ''} ${lowEnergy ? 'kebo-eyes-low' : ''}`}><span /><span /></div>;
 }
-=======
-      <div className="kebo-image-aura" />
-      <img
-        src="/kebo-model.png"
-        alt="Kebo 3D character"
-        className="kebo-model-image"
-      />
-      <div className="kebo-image-highlight" />
-      {activity === 'thinking' && (
-        <div className="kebo-thought-3d"><i /><i /><i /></div>
-      )}
-      {activity === 'resting' && <div className="kebo-zzz-3d">z<span>z</span><b>z</b></div>}
-      <span className="sr-only">Energy {Math.round(energy)} percent</span>
-    </div>
-  );
-}
->>>>>>> e57d7c9187ab7a66e4edc15cf778cdd661344105

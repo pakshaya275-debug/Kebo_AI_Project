@@ -9,6 +9,7 @@ import {
 } from '../types/kebo';
 import { clamp, decayStats, deriveEmotion } from '../lib/keboEngine';
 import { mockAgentRespond, idleThought } from '../lib/mockAgent';
+import { askKeboLLM } from '../lib/llmAgent';
 
 const STORAGE_KEY = 'kebo-state-v1';
 const DECAY_TICK_MS = 15_000;       // simulate decay periodically
@@ -71,6 +72,15 @@ export function useKebo() {
   const [isThinking, setIsThinking] = useState(false);
   const thinkTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activityTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const requestId = useRef(0);
+  const abortController = useRef<AbortController | null>(null);
+  const stateRef = useRef(state);
+  const messagesRef = useRef(messages);
+
+  useEffect(() => {
+    stateRef.current = state;
+    messagesRef.current = messages;
+  }, [state, messages]);
 
   // persist
   useEffect(() => {
@@ -171,21 +181,41 @@ export function useKebo() {
 
       if (thinkTimer.current) clearTimeout(thinkTimer.current);
       if (activityTimer.current) clearTimeout(activityTimer.current);
+      const currentRequestId = ++requestId.current;
+      abortController.current?.abort();
+      const controller = new AbortController();
+      abortController.current = controller;
       thinkTimer.current = setTimeout(() => {
-        setState((cur) => {
-          const reply = mockAgentRespond(cur, trimmed);
+        void (async () => {
+          const currentState = stateRef.current;
+          let reply: { text: string; emotion: typeof currentState.emotion };
+          try {
+            const text = await askKeboLLM({
+              message: trimmed,
+              keboState: currentState,
+              emotion: currentState.emotion,
+              recentConversation: messagesRef.current,
+              signal: controller.signal,
+            });
+            reply = { text, emotion: currentState.emotion };
+          } catch (error) {
+            if (currentRequestId !== requestId.current) return;
+            console.warn('Using Kebo mock fallback:', error);
+            const fallback = mockAgentRespond(currentState, trimmed);
+            reply = fallback;
+          }
+
+          if (currentRequestId !== requestId.current) return;
+          setState((cur) => ({ ...cur, activity: 'talking', emotion: reply.emotion }));
           setMessages((msgs) => [
             ...msgs,
             { id: newId(), sender: 'kebo', text: reply.text, emotion: reply.emotion, createdAt: Date.now() },
           ]);
-          const emotion = reply.emotion;
-          return { ...cur, activity: 'talking', emotion };
-        });
-        setIsThinking(false);
-        // return to idle shortly after
-        activityTimer.current = setTimeout(() => {
-          setState((p) => ({ ...p, activity: 'idle' }));
-        }, 2500);
+          setIsThinking(false);
+          activityTimer.current = setTimeout(() => {
+            setState((p) => ({ ...p, activity: 'idle' }));
+          }, 2500);
+        })();
       }, THINK_DELAY_MS);
     },
     [applyInteraction, isThinking]
@@ -193,6 +223,10 @@ export function useKebo() {
 
   const doActivity = useCallback(
     (activity: Activity) => {
+      requestId.current += 1;
+      abortController.current?.abort();
+      if (thinkTimer.current) clearTimeout(thinkTimer.current);
+      setIsThinking(false);
       if (activityTimer.current) clearTimeout(activityTimer.current);
       if (activity === 'playing') {
         applyInteraction('play');
@@ -225,6 +259,8 @@ export function useKebo() {
 
   useEffect(() => {
     return () => {
+      requestId.current += 1;
+      abortController.current?.abort();
       if (thinkTimer.current) clearTimeout(thinkTimer.current);
       if (activityTimer.current) clearTimeout(activityTimer.current);
     };

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Send } from 'lucide-react';
+import { Send, Volume2 } from 'lucide-react';
 import { EMOTIONS, type Message } from '../types/kebo';
 
 interface ChatPanelProps {
@@ -26,8 +26,8 @@ export function ChatPanel({ messages, isThinking, onSend }: ChatPanelProps) {
   };
 
   return (
-    <div className="flex flex-col h-full">
-      <div ref={scrollRef} className="flex-1 overflow-y-auto kebo-scroll px-1 space-y-3 py-2">
+    <div className="flex flex-col h-full min-h-0">
+      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto kebo-scroll px-1 space-y-3 py-2">
         {messages.length === 0 && (
           <div className="text-center text-slate-500 text-sm py-8 px-4">
             Say something to Kebo. Ask how it's feeling, suggest a game, or just say hi.
@@ -62,10 +62,23 @@ export function ChatPanel({ messages, isThinking, onSend }: ChatPanelProps) {
 function Bubble({ msg }: { msg: Message }) {
   const isKebo = msg.sender === 'kebo';
   const e = EMOTIONS[msg.emotion];
+  const speak = () => {
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(msg.text);
+    const voices = window.speechSynthesis.getVoices();
+    const preferredVoice = voices.find((voice) => (
+      /en/i.test(voice.lang) && /female|samantha|zira|aria|jenny|google us english/i.test(voice.name)
+    )) || voices.find((voice) => /en/i.test(voice.lang));
+    if (preferredVoice) utterance.voice = preferredVoice;
+    utterance.pitch = 1.35;
+    utterance.rate = 1.04;
+    utterance.volume = 0.9;
+    window.speechSynthesis.speak(utterance);
+  };
   return (
     <div className={`flex msg-in ${isKebo ? 'justify-start' : 'justify-end'}`}>
       <div
-        className={`max-w-[82%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
+        className={`max-w-[82%] min-w-0 break-words whitespace-pre-wrap rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
           isKebo
             ? 'rounded-bl-md text-slate-100'
             : 'rounded-br-md bg-emerald-500 text-white'
@@ -78,7 +91,20 @@ function Bubble({ msg }: { msg: Message }) {
             <span className="text-[10px] uppercase tracking-wide" style={{ color: e.color }}>{e.label}</span>
           </div>
         )}
-        <p>{msg.text}</p>
+        <div className="flex items-end gap-2">
+          <p className="min-w-0 flex-1">{msg.text}</p>
+          {isKebo && 'speechSynthesis' in window && (
+            <button
+              type="button"
+              onClick={speak}
+              className="shrink-0 text-slate-500 hover:text-emerald-300 transition-colors"
+              aria-label="Read Kebo message aloud"
+              title="Read aloud"
+            >
+              <Volume2 size={14} />
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

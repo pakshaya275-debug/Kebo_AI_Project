@@ -5,6 +5,7 @@ interface AskKeboArgs {
   keboState: KeboState;
   emotion: EmotionKey;
   recentConversation: Message[];
+  relevantMemories: string[];
   signal?: AbortSignal;
 }
 
@@ -15,6 +16,7 @@ export async function askKeboLLM({
   keboState,
   emotion,
   recentConversation,
+  relevantMemories,
   signal,
 }: AskKeboArgs): Promise<string> {
   const response = await fetch(API_URL, {
@@ -25,6 +27,7 @@ export async function askKeboLLM({
       keboState,
       emotion,
       recentConversation: recentConversation.slice(-10),
+      relevantMemories,
     }),
     signal,
   });

@@ -42,6 +42,7 @@ export function VitalStatsPanel({ stats }: VitalStatsPanelProps) {
       <StatBar label="Bond" value={stats.bond} color="#ec4899" icon={<HeartIcon />} />
       <StatBar label="Fullness" value={stats.hunger} color="#22c55e" icon={<BowlIcon />} />
       <StatBar label="Stimulation" value={stats.stimulation} color="#8b5cf6" icon={<SparklesIcon />} />
+      <StatBar label="Annoyance" value={stats.annoyance} color="#ef4444" icon={<SparklesIcon />} />
     </div>
   );
 }

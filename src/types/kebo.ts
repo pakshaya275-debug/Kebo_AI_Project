@@ -30,6 +30,7 @@ export interface VitalStats {
   bond: number;        // 0..100  connection with the user
   hunger: number;      // 0..100  fullness (high = full, low = hungry)
   stimulation: number; // 0..100  mental engagement / boredom (low = bored)
+  annoyance: number;    // 0..100  irritation caused by hurtful interactions
 }
 
 export type Sender = 'kebo' | 'user';
@@ -84,4 +85,5 @@ export const DEFAULT_STATS: VitalStats = {
   bond: 20,
   hunger: 65,
   stimulation: 55,
+  annoyance: 0,
 };

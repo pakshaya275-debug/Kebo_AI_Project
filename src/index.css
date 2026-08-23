@@ -172,6 +172,35 @@ body {
 .kebo-image-aura { display: none; }
 .kebo-model-image { position: relative; z-index: 2; display: block; width: 100%; height: 100%; object-fit: contain; object-position: center; transform: scale(1.18) translateY(2%); mix-blend-mode: normal; filter: none; user-select: none; pointer-events: none; }
 .kebo-image-model .kebo-thought-3d, .kebo-image-model .kebo-zzz-3d { z-index: 5; }
+.kebo-emotion-joy .kebo-model-image, .kebo-emotion-playful .kebo-model-image { filter: saturate(1.16) brightness(1.04); }
+.kebo-emotion-sad .kebo-model-image, .kebo-emotion-tired .kebo-model-image { filter: saturate(.72) brightness(.9); }
+.kebo-emotion-angry .kebo-model-image { filter: saturate(1.35) hue-rotate(-12deg) contrast(1.08); }
+.kebo-emotion-anxious .kebo-model-image { filter: saturate(.9) contrast(1.05); }
+.kebo-emotion-joy .kebo-model-image { filter: saturate(1.3) brightness(1.08) drop-shadow(0 0 14px rgba(245, 158, 11, .45)); }
+.kebo-emotion-playful .kebo-model-image { filter: saturate(1.35) brightness(1.08) drop-shadow(0 0 12px rgba(236, 72, 153, .4)); animation: kebo-image-bounce 1.8s ease-in-out infinite; }
+.kebo-emotion-sad .kebo-model-image { filter: saturate(.55) brightness(.78) contrast(.95); transform: scale(1.15) translateY(5%); }
+.kebo-emotion-tired .kebo-model-image { filter: saturate(.45) brightness(.72); transform: scale(1.15) translateY(5%); opacity: .88; }
+.kebo-emotion-angry .kebo-model-image { filter: saturate(1.6) hue-rotate(-18deg) brightness(1.03) contrast(1.18); animation: kebo-image-pulse 1.1s ease-in-out infinite; }
+.kebo-emotion-curious .kebo-model-image { filter: saturate(1.15) brightness(1.08) contrast(1.05); animation: kebo-image-alert 2.2s ease-in-out infinite; }
+.kebo-emotion-anxious .kebo-model-image { filter: saturate(.85) contrast(1.12); animation: kebo-image-shiver .7s ease-in-out infinite; }
+
+@keyframes kebo-image-bounce {
+  0%, 100% { transform: scale(1.18) translateY(2%); }
+  50% { transform: scale(1.21) translateY(-1%); }
+}
+@keyframes kebo-image-pulse {
+  0%, 100% { transform: scale(1.18) translateY(2%); }
+  50% { transform: scale(1.2) translateY(1%); }
+}
+@keyframes kebo-image-alert {
+  0%, 100% { transform: scale(1.18) translateY(2%); }
+  50% { transform: scale(1.2) translateY(0); }
+}
+@keyframes kebo-image-shiver {
+  0%, 100% { transform: scale(1.18) translateY(2%); }
+  25% { transform: scale(1.18) translate(-1px, 2%); }
+  75% { transform: scale(1.18) translate(1px, 2%); }
+}
 
 /* ---------- Typing dots ---------- */
 @keyframes typing-bounce {

@@ -22,7 +22,7 @@ export function KeboCreature({ emotion, activity, energy, size = 220 }: KeboCrea
 
   return (
     <div
-      className={`kebo-creature kebo-image-model ${bodyAnim}`}
+      className={`kebo-creature kebo-image-model kebo-emotion-${emotion} ${bodyAnim}`}
       style={{
         width: size,
         height: size,

@@ -63,13 +63,34 @@ export function addMemories(existing: KeboMemory[], texts: string[]): KeboMemory
 }
 
 export function retrieveMemories(memories: KeboMemory[], query: string): KeboMemory[] {
-  const terms = query.toLowerCase().split(/\W+/).filter((term) => term.length > 2);
+  const terms = expandTerms(query);
   return memories
-    .map((memory) => ({ memory, score: terms.filter((term) => memory.text.toLowerCase().includes(term)).length + memory.importance }))
+    .map((memory) => {
+      const memoryTerms = expandTerms(memory.text);
+      const overlap = terms.filter((term) => memoryTerms.includes(term)).length;
+      const recency = Math.max(0, 1 - (Date.now() - memory.lastUsedAt) / (1000 * 60 * 60 * 24 * 30));
+      return { memory, score: overlap * 2 + memory.importance + recency };
+    })
     .filter(({ score }) => score > 1)
     .sort((a, b) => b.score - a.score)
     .slice(0, 5)
-    .map(({ memory }) => memory);
+    .map(({ memory }) => ({ ...memory, lastUsedAt: Date.now() }));
+}
+
+function expandTerms(text: string): string[] {
+  const aliases: Record<string, string[]> = {
+    ai: ['ai', 'artificial', 'intelligence', 'project', 'study', 'studying', 'work', 'working', 'building', 'prepare', 'preparing'],
+    name: ['name', 'call', 'called'],
+    like: ['like', 'love', 'enjoy', 'favorite', 'favourite'],
+    sad: ['sad', 'unhappy', 'upset', 'hurt', 'lonely', 'worried', 'worry'],
+    project: ['project', 'assignment', 'work', 'working', 'building', 'preparing', 'prepare'],
+  };
+  const words = text.toLowerCase().split(/\W+/).filter((word) => word.length > 2);
+  return [...new Set(words.flatMap((word) => {
+    const root = word.endsWith('ing') ? word.slice(0, -3) : word.endsWith('ed') ? word.slice(0, -2) : word;
+    const concept = Object.entries(aliases).find(([, values]) => values.includes(word) || values.includes(root))?.[0];
+    return concept ? [word, root, concept] : [word, root];
+  }))];
 }
 
 export function memoryContext(memories: KeboMemory[], query: string): string[] {

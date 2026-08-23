@@ -12,6 +12,30 @@ const model = process.env.OPENAI_MODEL || 'local-model';
 const apiKey = process.env.OPENAI_API_KEY || 'openai-compatible';
 const client = new OpenAI({ apiKey, baseURL });
 
+function localEmotionAnalysis(message) {
+  const text = message.toLowerCase();
+  if (/\b(don't|dont|do not|never)\s+(hate|dislike)\s+(you|kebo)\b/.test(text)) {
+    return { emotion: 'calm', intensity: 0.2, target: 'kebo', reason: 'The message explicitly negates anger toward Kebo.' };
+  }
+  if (/\b(are you|how are|what can|do you|can you|why|how|what|when|where)\b/.test(text) || text.trim().endsWith('?')) {
+    return { emotion: 'curious', intensity: 0.45, target: 'unclear', reason: 'The user is asking a question.' };
+  }
+  if (/\b(i am|i'm|im|i feel|feeling)\b.*\b(sad|worried|anxious|lonely|tired|exhausted|overwhelmed|upset|stressed)\b/.test(text)) {
+    return { emotion: 'sad', intensity: 0.75, target: 'self', reason: 'The user describes a difficult emotional state.' };
+  }
+  if (/\b(hate|don't like|dont like|do not like|frustrated|exhausted|stuck|difficult)\b/.test(text)
+    && !/\b(hate|don't like|dont like|do not like)\s+(you|kebo)\b/.test(text)) {
+    return { emotion: 'sad', intensity: 0.65, target: 'outside', reason: 'The negativity is about an outside situation, not Kebo.' };
+  }
+  if (/\b(hate|don't like|dont like|do not like|stupid|useless|idiot|shut up)\s+(you|kebo)\b/.test(text)) {
+    return { emotion: 'angry', intensity: 0.8, target: 'kebo', reason: 'The negative language is directed at Kebo.' };
+  }
+  if (/\b(sorry|apologize|apology|forgive|amazing|awesome|great|good|love|thanks|thank you)\b/.test(text)) {
+    return { emotion: 'joy', intensity: 0.6, target: 'kebo', reason: 'The message contains warmth, praise, or repair.' };
+  }
+  return { emotion: 'calm', intensity: 0.2, target: 'unclear', reason: 'No strong emotional signal was found.' };
+}
+
 app.use(cors({ origin: process.env.CLIENT_ORIGIN || 'http://localhost:5173' }));
 app.use(express.json({ limit: '32kb' }));
 
@@ -20,6 +44,41 @@ app.get('/api/health', (_req, res) => {
   const configured = Boolean(process.env.OPENAI_API_KEY)
     && !process.env.OPENAI_API_KEY.startsWith('YOUR_');
   res.json({ ok: true, provider, configured, model });
+});
+
+app.post('/api/kebo-analyze', async (req, res) => {
+  const { message, currentEmotion } = req.body ?? {};
+  if (typeof message !== 'string' || !message.trim()) {
+    return res.status(400).json({ error: 'A message is required.' });
+  }
+
+  try {
+    const response = await client.chat.completions.create({
+      model,
+      temperature: 0,
+      max_tokens: 120,
+      messages: [
+        {
+          role: 'system',
+          content: `Analyze the user's message for Kebo's emotional state. Return only valid JSON with this exact shape: {"emotion":"joy|sad|angry|curious|calm|playful|tired|anxious","intensity":0.0,"target":"kebo|outside|self|unclear","reason":"short explanation"}.
+
+Choose the dominant meaning, not merely the strongest word. Negative words aimed at work, school, periods, weather, or another person are not anger at Kebo. Negated statements such as "I don't hate Kebo" are not angry. Use intensity between 0 and 1. Use joy for affection, praise, apologies, or relief; sad for sadness, worry, exhaustion, or disappointment; angry only when anger is clearly expressed toward Kebo or generally; curious for genuine questions. Current Kebo emotion: ${currentEmotion || 'calm'}.`,
+        },
+        { role: 'user', content: message.trim() },
+      ],
+    });
+    const rawAnalysis = response.choices[0]?.message?.content || '';
+    const jsonMatch = rawAnalysis.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return res.json(localEmotionAnalysis(message));
+    const parsed = JSON.parse(jsonMatch[0]);
+    const emotions = ['joy', 'sad', 'angry', 'curious', 'calm', 'playful', 'tired', 'anxious'];
+    const emotion = emotions.includes(parsed.emotion) ? parsed.emotion : 'calm';
+    const intensity = Math.min(1, Math.max(0, Number(parsed.intensity) || 0));
+    return res.json({ emotion, intensity, target: parsed.target || 'unclear', reason: String(parsed.reason || '') });
+  } catch (error) {
+    console.warn('Using local emotion analysis fallback:', error.message);
+    return res.json(localEmotionAnalysis(message));
+  }
 });
 
 app.post('/api/kebo-chat', async (req, res) => {

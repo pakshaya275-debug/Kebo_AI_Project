@@ -9,7 +9,7 @@ import {
 } from '../types/kebo';
 import { clamp, decayStats, deriveEmotion, detectMessageEmotion } from '../lib/keboEngine';
 import { mockAgentRespond, idleThought } from '../lib/mockAgent';
-import { askKeboLLM } from '../lib/llmAgent';
+import { analyzeKeboMessage, askKeboLLM, type KeboEmotionAnalysis } from '../lib/llmAgent';
 import { addMemories, extractMemories, loadMemories, memoryContext, saveMemories, type KeboMemory } from '../lib/memory';
 
 const STORAGE_KEY = 'kebo-state-v1';
@@ -139,7 +139,7 @@ export function useKebo() {
   }, []);
 
   const applyInteraction = useCallback(
-    (kind: 'message' | 'play' | 'feed' | 'rest', intensity = 1, messageText = '') => {
+    (kind: 'message' | 'play' | 'feed' | 'rest', intensity = 1, messageText = '', analysis?: KeboEmotionAnalysis) => {
       setState((prev) => {
         const now = Date.now();
         const stats = { ...prev.stats };
@@ -147,7 +147,9 @@ export function useKebo() {
           stats.energy = clamp(stats.energy - 2 * intensity);
           stats.stimulation = clamp(stats.stimulation + 8 * intensity);
           stats.bond = clamp(stats.bond + 2.5 * intensity);
-          const messageEmotion = detectMessageEmotion(messageText).emotion;
+          const messageEmotion = analysis?.target === 'outside' && analysis.emotion === 'angry'
+            ? 'sad'
+            : analysis?.emotion ?? detectMessageEmotion(messageText).emotion;
           if (messageEmotion === 'joy') {
             stats.happiness = clamp(stats.happiness + 12 * intensity);
             stats.bond = clamp(stats.bond + 4 * intensity);
@@ -155,7 +157,8 @@ export function useKebo() {
           } else if (messageEmotion === 'angry') {
             stats.happiness = clamp(stats.happiness - 14 * intensity);
             stats.bond = clamp(stats.bond - 5 * intensity);
-            stats.annoyance = clamp(stats.annoyance + 28 * intensity);
+            if (analysis?.target === 'kebo' || !analysis) stats.annoyance = clamp(stats.annoyance + 28 * intensity);
+            else stats.happiness = clamp(stats.happiness - 4 * intensity);
           } else if (messageEmotion === 'sad') {
             stats.happiness = clamp(stats.happiness - 3 * intensity);
             stats.stimulation = clamp(stats.stimulation + 3 * intensity);
@@ -185,7 +188,11 @@ export function useKebo() {
           stats.energy = clamp(stats.energy + 30 * intensity);
           stats.happiness = clamp(stats.happiness + 2 * intensity);
         }
-        const messageEmotion = kind === 'message' ? detectMessageEmotion(messageText).emotion : null;
+        const messageEmotion = kind === 'message'
+          ? analysis?.target === 'outside' && analysis.emotion === 'angry'
+            ? 'sad'
+            : analysis?.emotion ?? detectMessageEmotion(messageText).emotion
+          : null;
         const derivedEmotion = deriveEmotion(stats, prev.personality);
         const emotion = messageEmotion === 'joy'
           ? 'joy'
@@ -197,7 +204,7 @@ export function useKebo() {
                 ? 'curious'
                   : messageEmotion === 'playful'
                     ? 'playful'
-              : derivedEmotion;
+                  : derivedEmotion;
         const next = { ...prev, stats, emotion, lastInteraction: now };
         stateRef.current = next;
         return next;
@@ -224,8 +231,6 @@ export function useKebo() {
 
       setState((prev) => ({ ...prev, activity: 'thinking' }));
       setIsThinking(true);
-      applyInteraction('message', 1, trimmed);
-      const detectedEmotion = detectMessageEmotion(trimmed).emotion;
 
       if (thinkTimer.current) clearTimeout(thinkTimer.current);
       if (activityTimer.current) clearTimeout(activityTimer.current);
@@ -236,17 +241,26 @@ export function useKebo() {
       thinkTimer.current = setTimeout(() => {
         void (async () => {
           const currentState = stateRef.current;
+          let analysis: KeboEmotionAnalysis;
+          try {
+            analysis = await analyzeKeboMessage(trimmed, currentState.emotion, controller.signal);
+          } catch {
+            const fallbackEmotion = detectMessageEmotion(trimmed).emotion || currentState.emotion;
+            analysis = { emotion: fallbackEmotion, intensity: 0.5, target: 'unclear', reason: 'local fallback' };
+          }
+          applyInteraction('message', Math.max(0.25, analysis.intensity), trimmed, analysis);
+          const updatedState = stateRef.current;
           let reply: { text: string; emotion: typeof currentState.emotion };
           try {
             const text = await askKeboLLM({
               message: trimmed,
-              keboState: currentState,
-              emotion: currentState.emotion,
+              keboState: updatedState,
+              emotion: updatedState.emotion,
               recentConversation: messagesRef.current,
               relevantMemories: memoryContext(memoriesRef.current, trimmed),
               signal: controller.signal,
             });
-            reply = { text, emotion: detectedEmotion ?? currentState.emotion };
+            reply = { text, emotion: updatedState.emotion };
           } catch (error) {
             if (currentRequestId !== requestId.current) return;
             console.warn('Using Kebo mock fallback:', error);

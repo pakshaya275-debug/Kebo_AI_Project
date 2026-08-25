@@ -208,3 +208,27 @@ body {
   40%           { transform: translateY(-4px); opacity: 1; }
 }
 .typing-dot { animation: typing-bounce 1.2s ease-in-out infinite; }
+
+/* ---------- Textarea auto-resize ---------- */
+.kebo-textarea {
+  field-sizing: content;
+  overflow-y: hidden;
+}
+/* Fallback for browsers without field-sizing */
+@supports not (field-sizing: content) {
+  .kebo-textarea { overflow-y: auto; }
+}
+
+/* ---------- Dropdown slide-in ---------- */
+@keyframes dropdown-in {
+  from { opacity: 0; transform: translateY(-6px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.dropdown-menu { animation: dropdown-in 0.15s ease-out; transform-origin: top right; }
+
+/* ---------- Typing label pulse ---------- */
+@keyframes kebo-typing-label {
+  0%, 100% { opacity: 0.6; }
+  50%       { opacity: 1; }
+}
+.kebo-typing-label { animation: kebo-typing-label 1.8s ease-in-out infinite; }

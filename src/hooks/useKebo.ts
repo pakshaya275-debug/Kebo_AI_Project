@@ -329,5 +329,14 @@ export function useKebo() {
     };
   }, []);
 
-  return { state, messages, isThinking, sendMessage, doActivity };
+  const clearMessages = useCallback(() => {
+    setMessages([]);
+  }, []);
+
+  const clearMemories = useCallback(() => {
+    setMemories([]);
+    try { localStorage.removeItem('kebo-memories-v1'); } catch { /* ignore */ }
+  }, []);
+
+  return { state, messages, isThinking, sendMessage, doActivity, clearMessages, clearMemories };
 }

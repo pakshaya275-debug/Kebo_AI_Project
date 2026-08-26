@@ -13,9 +13,9 @@ import { analyzeKeboMessage, askKeboLLM, type KeboEmotionAnalysis } from '../lib
 import { addMemories, extractMemories, loadMemories, memoryContext, saveMemories, type KeboMemory } from '../lib/memory';
 
 const STORAGE_KEY = 'kebo-state-v1';
-const DECAY_TICK_MS = 15_000;       // simulate decay periodically
-const IDLE_THOUGHT_MS = 45_000;     // Kebo may voice a thought when idle
-const THINK_DELAY_MS = 250;         // brief "thinking" pause before replying
+const DECAY_TICK_MS = 15_000;
+const IDLE_THOUGHT_MS = 45_000;
+const THINK_DELAY_MS = 250;
 
 function isValidState(value: unknown): value is KeboState {
   if (!value || typeof value !== 'object') return false;
@@ -72,6 +72,8 @@ export function useKebo() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isThinking, setIsThinking] = useState(false);
   const [memories, setMemories] = useState<KeboMemory[]>(loadMemories);
+  const [thoughtBubble, setThoughtBubble] = useState<string | null>(null);
+  const thoughtTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const thinkTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activityTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const requestId = useRef(0);
@@ -88,7 +90,6 @@ export function useKebo() {
 
   useEffect(() => saveMemories(memories), [memories]);
 
-  // persist
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -97,7 +98,6 @@ export function useKebo() {
     }
   }, [state]);
 
-  // living decay tick
   useEffect(() => {
     const tick = () => {
       setState((prev) => {
@@ -118,7 +118,12 @@ export function useKebo() {
     return () => clearInterval(interval);
   }, []);
 
-  // idle thoughts
+  const showThought = useCallback((text: string, durationMs = 3500) => {
+    if (thoughtTimer.current) clearTimeout(thoughtTimer.current);
+    setThoughtBubble(text);
+    thoughtTimer.current = setTimeout(() => setThoughtBubble(null), durationMs);
+  }, []);
+
   useEffect(() => {
     const interval = setInterval(() => {
       setState((prev) => {
@@ -126,73 +131,67 @@ export function useKebo() {
         const quiet = Date.now() - prev.lastInteraction > IDLE_THOUGHT_MS;
         if (idle && quiet && prev.stats.energy > 15) {
           const thought = idleThought(prev);
-          setMessages((msgs) => [
-            ...msgs,
-            { id: newId(), sender: 'kebo', text: thought.text, emotion: thought.emotion, createdAt: Date.now() },
-          ]);
+          showThought(thought.text, 4000);
           return { ...prev, lastInteraction: Date.now() };
         }
         return prev;
       });
     }, IDLE_THOUGHT_MS);
     return () => clearInterval(interval);
-  }, []);
+  }, [showThought]);
 
-  const applyInteraction = useCallback(
-    (kind: 'message' | 'play' | 'feed' | 'rest', intensity = 1, messageText = '', analysis?: KeboEmotionAnalysis) => {
+  const applyConversation = useCallback(
+    (intensity = 1, messageText = '', analysis?: KeboEmotionAnalysis) => {
       setState((prev) => {
         const now = Date.now();
         const stats = { ...prev.stats };
-        if (kind === 'message') {
-          stats.energy = clamp(stats.energy - 2 * intensity);
-          stats.stimulation = clamp(stats.stimulation + 8 * intensity);
-          stats.bond = clamp(stats.bond + 2.5 * intensity);
-          const messageEmotion = analysis?.target === 'outside' && analysis.emotion === 'angry'
-            ? 'sad'
-            : analysis?.emotion ?? detectMessageEmotion(messageText).emotion;
-          if (messageEmotion === 'joy') {
-            stats.happiness = clamp(stats.happiness + 12 * intensity);
-            stats.bond = clamp(stats.bond + 4 * intensity);
-            stats.annoyance = clamp(stats.annoyance - 30 * intensity);
-          } else if (messageEmotion === 'angry') {
-            stats.happiness = clamp(stats.happiness - 14 * intensity);
-            stats.bond = clamp(stats.bond - 5 * intensity);
-            if (analysis?.target === 'kebo' || !analysis) stats.annoyance = clamp(stats.annoyance + 28 * intensity);
-            else stats.happiness = clamp(stats.happiness - 4 * intensity);
-          } else if (messageEmotion === 'sad') {
-            stats.happiness = clamp(stats.happiness - 3 * intensity);
-            stats.stimulation = clamp(stats.stimulation + 3 * intensity);
-          } else {
-            stats.happiness = clamp(stats.happiness + 3 * intensity);
-          }
-          if (messageEmotion !== 'angry') {
-            const recovery = messageEmotion === 'joy' || messageEmotion === 'playful'
-              ? 30
-              : messageEmotion === 'curious'
-                ? 12
-                : messageEmotion === 'sad'
-                  ? 4
-                  : 12;
-            stats.annoyance = clamp(stats.annoyance - recovery * intensity);
-          }
-        } else if (kind === 'play') {
-          stats.energy = clamp(stats.energy - 10 * intensity);
-          stats.happiness = clamp(stats.happiness + 8 * intensity);
-          stats.stimulation = clamp(stats.stimulation + 15 * intensity);
+
+        stats.energy = clamp(stats.energy - 2 * intensity);
+        stats.stimulation = clamp(stats.stimulation + 8 * intensity);
+        stats.bond = clamp(stats.bond + 2.5 * intensity);
+
+        const messageEmotion = analysis?.target === 'outside' && analysis.emotion === 'angry'
+          ? 'sad'
+          : analysis?.emotion ?? detectMessageEmotion(messageText).emotion;
+
+        if (messageEmotion === 'joy') {
+          stats.happiness = clamp(stats.happiness + 12 * intensity);
           stats.bond = clamp(stats.bond + 4 * intensity);
-        } else if (kind === 'feed') {
-          stats.hunger = clamp(stats.hunger + 35 * intensity);
-          stats.happiness = clamp(stats.happiness + 5 * intensity);
-          stats.energy = clamp(stats.energy + 8 * intensity);
-        } else if (kind === 'rest') {
-          stats.energy = clamp(stats.energy + 30 * intensity);
-          stats.happiness = clamp(stats.happiness + 2 * intensity);
+          stats.annoyance = clamp(stats.annoyance - 30 * intensity);
+          stats.hunger = clamp(stats.hunger + 2 * intensity);
+        } else if (messageEmotion === 'angry') {
+          stats.happiness = clamp(stats.happiness - 14 * intensity);
+          stats.bond = clamp(stats.bond - 5 * intensity);
+          if (analysis?.target === 'kebo' || !analysis) stats.annoyance = clamp(stats.annoyance + 28 * intensity);
+          else stats.happiness = clamp(stats.happiness - 4 * intensity);
+        } else if (messageEmotion === 'sad') {
+          stats.happiness = clamp(stats.happiness - 3 * intensity);
+          stats.stimulation = clamp(stats.stimulation + 3 * intensity);
+          stats.bond = clamp(stats.bond + 2 * intensity);
+        } else if (messageEmotion === 'playful') {
+          stats.happiness = clamp(stats.happiness + 10 * intensity);
+          stats.stimulation = clamp(stats.stimulation + 10 * intensity);
+          stats.energy = clamp(stats.energy - 3 * intensity);
+          stats.bond = clamp(stats.bond + 3 * intensity);
+        } else if (messageEmotion === 'curious') {
+          stats.stimulation = clamp(stats.stimulation + 10 * intensity);
+          stats.bond = clamp(stats.bond + 2 * intensity);
+          stats.happiness = clamp(stats.happiness + 3 * intensity);
+        } else {
+          stats.happiness = clamp(stats.happiness + 3 * intensity);
         }
-        const messageEmotion = kind === 'message'
-          ? analysis?.target === 'outside' && analysis.emotion === 'angry'
-            ? 'sad'
-            : analysis?.emotion ?? detectMessageEmotion(messageText).emotion
-          : null;
+
+        if (messageEmotion !== 'angry') {
+          const recovery = messageEmotion === 'joy' || messageEmotion === 'playful'
+            ? 30
+            : messageEmotion === 'curious'
+              ? 12
+              : messageEmotion === 'sad'
+                ? 4
+                : 12;
+          stats.annoyance = clamp(stats.annoyance - recovery * intensity);
+        }
+
         const derivedEmotion = deriveEmotion(stats, prev.personality);
         const emotion = messageEmotion === 'joy'
           ? 'joy'
@@ -202,8 +201,8 @@ export function useKebo() {
               ? 'sad'
               : messageEmotion === 'curious'
                 ? 'curious'
-                  : messageEmotion === 'playful'
-                    ? 'playful'
+                : messageEmotion === 'playful'
+                  ? 'playful'
                   : derivedEmotion;
         const next = { ...prev, stats, emotion, lastInteraction: now };
         stateRef.current = next;
@@ -248,7 +247,7 @@ export function useKebo() {
             const fallbackEmotion = detectMessageEmotion(trimmed).emotion || currentState.emotion;
             analysis = { emotion: fallbackEmotion, intensity: 0.5, target: 'unclear', reason: 'local fallback' };
           }
-          applyInteraction('message', Math.max(0.25, analysis.intensity), trimmed, analysis);
+          applyConversation(Math.max(0.25, analysis.intensity), trimmed, analysis);
           const updatedState = stateRef.current;
           let reply: { text: string; emotion: typeof currentState.emotion };
           try {
@@ -281,43 +280,7 @@ export function useKebo() {
         })();
       }, THINK_DELAY_MS);
     },
-    [applyInteraction, isThinking]
-  );
-
-  const doActivity = useCallback(
-    (activity: Activity) => {
-      requestId.current += 1;
-      abortController.current?.abort();
-      if (thinkTimer.current) clearTimeout(thinkTimer.current);
-      setIsThinking(false);
-      if (activityTimer.current) clearTimeout(activityTimer.current);
-      if (activity === 'playing') {
-        applyInteraction('play');
-        setState((p) => ({ ...p, activity: 'playing' }));
-        setMessages((msgs) => [
-          ...msgs,
-          { id: newId(), sender: 'kebo', text: 'Wheee! That was fun. 🎉', emotion: 'playful', createdAt: Date.now() },
-        ]);
-        activityTimer.current = setTimeout(() => setState((p) => ({ ...p, activity: 'idle' })), 3000);
-      } else if (activity === 'feeding') {
-        applyInteraction('feed');
-        setState((p) => ({ ...p, activity: 'feeding' }));
-        setMessages((msgs) => [
-          ...msgs,
-          { id: newId(), sender: 'kebo', text: 'Mmm, thank you. That hit the spot.', emotion: 'joy', createdAt: Date.now() },
-        ]);
-        activityTimer.current = setTimeout(() => setState((p) => ({ ...p, activity: 'idle' })), 1500);
-      } else if (activity === 'resting') {
-        applyInteraction('rest');
-        setState((p) => ({ ...p, activity: 'resting' }));
-        setMessages((msgs) => [
-          ...msgs,
-          { id: newId(), sender: 'kebo', text: 'Resting now... I feel myself recharging.', emotion: 'tired', createdAt: Date.now() },
-        ]);
-        activityTimer.current = setTimeout(() => setState((p) => ({ ...p, activity: 'idle' })), 4000);
-      }
-    },
-    [applyInteraction]
+    [applyConversation, isThinking]
   );
 
   useEffect(() => {
@@ -326,6 +289,7 @@ export function useKebo() {
       abortController.current?.abort();
       if (thinkTimer.current) clearTimeout(thinkTimer.current);
       if (activityTimer.current) clearTimeout(activityTimer.current);
+      if (thoughtTimer.current) clearTimeout(thoughtTimer.current);
     };
   }, []);
 
@@ -338,5 +302,5 @@ export function useKebo() {
     try { localStorage.removeItem('kebo-memories-v1'); } catch { /* ignore */ }
   }, []);
 
-  return { state, messages, isThinking, sendMessage, doActivity, clearMessages, clearMemories };
+  return { state, messages, isThinking, thoughtBubble, sendMessage, clearMessages, clearMemories };
 }

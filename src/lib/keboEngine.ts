@@ -91,27 +91,99 @@ export function detectMessageEmotion(text: string): { emotion: EmotionKey | null
 
 /**
  * Derives the dominant emotion from vital stats and personality.
- * Each emotion has a weighted pull based on stats.
+ * Emotions are compared by score — no single stat instantly wins.
+ * This gives smooth, gradual transitions instead of binary jumps.
  */
 export function deriveEmotion(
   stats: VitalStats,
   personality: KeboState['personality']
 ): EmotionKey {
-  if (stats.annoyance >= 20) return 'angry';
+  const openness = personality.openness * 40;
+  const extraversion = personality.extraversion * 30;
+  const neuroticism = personality.neuroticism * 35;
+  const agreeableness = personality.agreeableness * 30;
 
   const scores: EmotionScore[] = [
-    { key: 'joy',      score: stats.happiness * 0.7 + stats.bond * 0.3 },
-    { key: 'calm',     score: (stats.energy > 40 ? 45 : 10) + (100 - personality.neuroticism * 100) * 0.3 },
-    { key: 'curious',  score: stats.stimulation * 0.6 + personality.openness * 40 },
-    { key: 'playful',  score: stats.energy * 0.4 + stats.happiness * 0.3 + personality.extraversion * 30 },
-    { key: 'tired',    score: (100 - stats.energy) * 1.2 },
-    { key: 'sad',      score: (100 - stats.happiness) * 0.6 + (100 - stats.bond) * 0.2 },
-    { key: 'anxious',  score: (100 - stats.stimulation) * 0.3 + personality.neuroticism * 35 },
-    { key: 'angry',    score: stats.annoyance * 1.2 + (100 - stats.happiness) * 0.3 + personality.neuroticism * 20 - personality.agreeableness * 30 },
+    {
+      key: 'joy',
+      score:
+        stats.happiness * 0.7
+        + stats.bond * 0.28
+        + stats.energy * 0.12
+        + extraversion * 0.3
+        - stats.annoyance * 0.35,
+    },
+    {
+      key: 'playful',
+      score:
+        stats.energy * 0.45
+        + stats.happiness * 0.3
+        + stats.stimulation * 0.3
+        + extraversion * 0.4
+        - stats.annoyance * 0.3,
+    },
+    {
+      key: 'curious',
+      score:
+        stats.stimulation * 0.55
+        + openness * 0.6
+        + stats.energy * 0.15
+        - (100 - stats.annoyance) * 0.05,
+    },
+    {
+      key: 'calm',
+      score:
+        (stats.energy > 35 && stats.energy < 80 ? 55 : Math.min(stats.energy, 100 - stats.energy) * 1.1)
+        + (100 - personality.neuroticism) * 30
+        + (100 - stats.annoyance) * 0.2
+        + agreeableness * 0.3,
+    },
+    {
+      key: 'tired',
+      score:
+        (100 - stats.energy) * 1.05
+        + (stats.hunger < 25 ? 20 : 0)
+        - stats.stimulation * 0.15,
+    },
+    {
+      key: 'sad',
+      score:
+        (100 - stats.happiness) * 0.62
+        + (100 - stats.bond) * 0.22
+        + (stats.hunger < 20 ? 18 : 0)
+        + neuroticism * 0.3,
+    },
+    {
+      key: 'anxious',
+      score:
+        (100 - stats.stimulation) * 0.38
+        + neuroticism * 0.55
+        + (stats.hunger < 30 ? 10 : 0)
+        - agreeableness * 0.15,
+    },
+    {
+      key: 'angry',
+      score:
+        stats.annoyance * 1.05
+        + (100 - stats.happiness) * 0.25
+        + neuroticism * 0.25
+        - agreeableness * 0.4,
+    },
   ];
 
   scores.sort((a, b) => b.score - a.score);
-  return scores[0].key;
+  const [top, second] = scores;
+  const tie = top.score - second.score < 3;
+
+  if (tie) {
+    if (top.key === 'angry' && second.key === 'sad') return 'sad';
+    if (top.key === 'angry' && second.key === 'anxious') return 'anxious';
+    if (top.key === 'joy' && second.key === 'playful') return stats.energy > 60 ? 'playful' : 'joy';
+    if (top.key === 'curious' && second.key === 'calm') return stats.stimulation > 65 ? 'curious' : 'calm';
+    if (top.key === 'tired' && (second.key === 'sad' || second.key === 'calm')) return 'tired';
+  }
+
+  return top.key;
 }
 
 export function emotionIntensity(

@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
-import { MessageCircle, Mic, Brain, BarChart3, Settings, Sun, Moon, ChevronDown, Send } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { MessageCircle, Mic, Brain, BarChart3, Settings, Sun, Moon, ChevronDown, Send, Trash2, Clock, Star, ArrowRight } from 'lucide-react';
 import { KeboCreature } from './components/KeboCreature';
 import { useKebo } from './hooks/useKebo';
 import { EMOTIONS, type Message, type VitalStats } from './types/kebo';
+import { type KeboMemory, retrieveMemories } from './lib/memory';
 
 type NavItem = 'chat' | 'voice' | 'memory' | 'stats' | 'settings';
 
@@ -18,10 +19,11 @@ const MOOD_PHRASES: Record<string, string> = {
 };
 
 function App() {
-  const { state, messages, isThinking, sendMessage, clearMessages, clearMemories } = useKebo();
+  const { state, messages, isThinking, memories, sendMessage, clearMessages, clearMemories } = useKebo();
   const [activeNav, setActiveNav] = useState<NavItem>('chat');
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [darkMode, setDarkMode] = useState(true);
+  const [memoryQuery, setMemoryQuery] = useState('');
 
   const emotion = EMOTIONS[state.emotion];
   const moodPhrase = MOOD_PHRASES[state.emotion] ?? 'Existing in the moment.';
@@ -34,11 +36,16 @@ function App() {
     { key: 'settings', label: 'Settings', icon: <Settings size={20} /> },
   ];
 
-  const recentMemories = [
-    { text: 'You said: "That\'s good to hear!"', time: Date.now() - 0 },
-    { text: 'You asked: "How are you today?"', time: Date.now() - 60_000 },
-    { text: 'Kebo joined the chat', time: Date.now() - 120_000 },
-  ].filter((m, i) => i < 3);
+  const recentMemories = useMemo(() => {
+    const sorted = [...memories].sort((a, b) => b.createdAt - a.createdAt);
+    return sorted.slice(0, 3);
+  }, [memories]);
+
+  const allMemoriesFiltered = useMemo(() => {
+    const trimmed = memoryQuery.trim();
+    if (!trimmed) return [...memories].sort((a, b) => b.createdAt - a.createdAt);
+    return retrieveMemories(memories, trimmed).sort((a, b) => b.createdAt - a.createdAt);
+  }, [memories, memoryQuery]);
 
   return (
     <div className="min-h-screen w-full bg-[#06100c] text-slate-100 flex overflow-hidden font-sans">
@@ -136,122 +143,34 @@ function App() {
           </div>
         </header>
 
-        {/* ─── Chat + Right Panel ─── */}
+        {/* ─── Main Content Area (switches by nav) ─── */}
         <div className="flex-1 flex min-h-0 p-4 sm:p-6 gap-6">
-          {/* Chat Column */}
-          <div className="flex-1 min-w-0 flex flex-col rounded-3xl border border-white/5 bg-white/[0.02] overflow-hidden">
-            <ChatMessages messages={messages} isThinking={isThinking} onSend={sendMessage} />
-          </div>
-
-          {/* Right Panel: Kebo + Stats */}
-          <div className="hidden lg:flex flex-col w-96 shrink-0 gap-5 overflow-y-auto">
-            {/* Kebo Display */}
-            <div
-              className="relative rounded-3xl border border-white/5 overflow-hidden flex items-center justify-center py-8 min-h-[340px]"
-              style={{
-                background: `radial-gradient(ellipse at 50% 60%, ${emotion.color}18 0%, transparent 65%), linear-gradient(180deg, #0a1812 0%, #06100c 100%)`,
-              }}
-            >
-              {/* Background sparkle dots */}
-              <div className="absolute inset-0 pointer-events-none">
-                {Array.from({ length: 14 }).map((_, i) => (
-                  <div
-                    key={i}
-                    className="absolute w-1 h-1 rounded-full opacity-40"
-                    style={{
-                      top: `${Math.random() * 80 + 5}%`,
-                      left: `${Math.random() * 90 + 5}%`,
-                      backgroundColor: emotion.color,
-                      animation: `sparkle ${2 + Math.random() * 3}s ease-in-out infinite`,
-                      animationDelay: `${Math.random() * 3}s`,
-                    }}
-                  />
-                ))}
-              </div>
-
-              {/* Glow layer */}
-              <div
-                className="absolute inset-0 pointer-events-none transition-all duration-1000"
-                style={{
-                  background: `radial-gradient(circle at 50% 55%, ${emotion.color}30, transparent 55%)`,
-                  opacity: state.stats.annoyance > 30 ? 0.85 : 0.55,
-                }}
-              />
-
-              <div className="relative z-10">
-                <KeboCreature
-                  emotion={state.emotion}
-                  activity={state.activity}
-                  energy={state.stats.energy}
-                  vitals={state.stats}
-                  size={260}
-                />
-              </div>
-            </div>
-
-            {/* Current Emotion */}
-            <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-5">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-bold text-slate-100">Current Emotion</h3>
-                <span
-                  className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold"
-                  style={{ backgroundColor: `${emotion.color}22`, color: emotion.color, border: `1px solid ${emotion.color}33` }}
-                >
-                  <span>{emotion.label}</span>
-                  <span>{emotion.emoji}</span>
-                </span>
-              </div>
-              <p className="text-sm text-slate-400 mb-4">{moodPhrase}</p>
-              <div className="flex items-center gap-3">
-                <div className="flex-1 h-2 rounded-full bg-white/5 overflow-hidden">
-                  <div
-                    className="h-full rounded-full transition-all duration-700 ease-out"
-                    style={{
-                      width: `${emotionIntensity(state)}%`,
-                      backgroundColor: emotion.color,
-                      boxShadow: `0 0 8px ${emotion.color}66`,
-                    }}
-                  />
-                </div>
-                <span className="text-sm font-mono tabular-nums text-slate-300">
-                  {emotionIntensity(state)}%
-                </span>
-              </div>
-            </div>
-
-            {/* Vitals */}
-            <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-5">
-              <h3 className="text-sm font-bold text-slate-100 mb-4">Vitals</h3>
-              <div className="space-y-3.5">
-                <VitalBar label="Energy"      value={state.stats.energy}      color="#10b981" icon="⚡" />
-                <VitalBar label="Happiness"   value={state.stats.happiness}   color="#f59e0b" icon="💚" />
-                <VitalBar label="Bond"        value={state.stats.bond}        color="#ec4899" icon="👥" />
-                <VitalBar label="Fullness"    value={state.stats.hunger}      color="#22c55e" icon="🌱" warnLow />
-                <VitalBar label="Stimulation" value={state.stats.stimulation} color="#fbbf24" icon="⭐" />
-                <VitalBar label="Annoyance"   value={state.stats.annoyance}   color="#ef4444" icon="😡" warnHigh />
-              </div>
-            </div>
-
-            {/* Recent Memory */}
-            <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-5">
-              <h3 className="text-sm font-bold text-slate-100 mb-4">Recent Memory</h3>
-              <div className="space-y-3">
-                {recentMemories.map((m, i) => (
-                  <div key={i} className="flex items-start gap-2.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 mt-1.5 shrink-0 shadow-[0_0_4px_#34d399]" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs text-slate-300 leading-relaxed">{m.text}</p>
-                      <p className="text-[10px] text-slate-600 mt-0.5 tabular-nums">{formatTime(m.time)}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <button className="mt-4 w-full flex items-center justify-between px-3.5 py-2 rounded-xl border border-white/5 bg-white/[0.02] text-xs text-slate-400 hover:bg-white/5 hover:text-slate-200 transition-colors">
-                <span>View All Memories</span>
-                <ChevronDown size={14} className="rotate-[-90deg]" />
-              </button>
-            </div>
-          </div>
+          {activeNav === 'memory' ? (
+            <MemoryView
+              memories={allMemoriesFiltered}
+              total={memories.length}
+              query={memoryQuery}
+              onQuery={setMemoryQuery}
+              onClear={clearMemories}
+            />
+          ) : activeNav === 'stats' ? (
+            <StatsView state={state} messages={messages} />
+          ) : activeNav === 'settings' ? (
+            <SettingsView onClearMessages={clearMessages} onClearMemories={clearMemories} />
+          ) : activeNav === 'voice' ? (
+            <VoiceChatPlaceholder />
+          ) : (
+            <DefaultChatLayout
+              messages={messages}
+              isThinking={isThinking}
+              onSend={sendMessage}
+              state={state}
+              memories={memories}
+              recentMemories={recentMemories}
+              moodPhrase={moodPhrase}
+              onOpenMemory={() => setActiveNav('memory')}
+            />
+          )}
         </div>
       </div>
 
@@ -262,6 +181,168 @@ function App() {
         }
       `}</style>
     </div>
+  );
+}
+
+/* ─── Default Chat Layout (used for activeNav = chat) ─── */
+function DefaultChatLayout({
+  messages,
+  isThinking,
+  onSend,
+  state,
+  memories,
+  recentMemories,
+  moodPhrase,
+  onOpenMemory,
+}: {
+  messages: Message[];
+  isThinking: boolean;
+  onSend: (text: string) => void;
+  state: ReturnType<typeof useKebo>['state'];
+  memories: KeboMemory[];
+  recentMemories: KeboMemory[];
+  moodPhrase: string;
+  onOpenMemory: () => void;
+}) {
+  const emotion = EMOTIONS[state.emotion];
+  return (
+    <>
+      {/* Chat Column */}
+      <div className="flex-1 min-w-0 flex flex-col rounded-3xl border border-white/5 bg-white/[0.02] overflow-hidden">
+        <ChatMessages messages={messages} isThinking={isThinking} onSend={onSend} />
+      </div>
+
+      {/* Right Panel: Kebo + Stats */}
+      <div className="hidden lg:flex flex-col w-96 shrink-0 gap-5 overflow-y-auto">
+        {/* Kebo Display */}
+        <div
+          className="relative rounded-3xl border border-white/5 overflow-hidden flex items-center justify-center py-8 min-h-[340px]"
+          style={{
+            background: `radial-gradient(ellipse at 50% 60%, ${emotion.color}18 0%, transparent 65%), linear-gradient(180deg, #0a1812 0%, #06100c 100%)`,
+          }}
+        >
+          {/* Background sparkle dots */}
+          <div className="absolute inset-0 pointer-events-none">
+            {Array.from({ length: 14 }).map((_, i) => (
+              <div
+                key={i}
+                className="absolute w-1 h-1 rounded-full opacity-40"
+                style={{
+                  top: `${(i * 67) % 80 + 5}%`,
+                  left: `${(i * 37) % 90 + 5}%`,
+                  backgroundColor: emotion.color,
+                  animation: `sparkle ${2 + (i % 3) * 0.7}s ease-in-out infinite`,
+                  animationDelay: `${(i * 0.23) % 3}s`,
+                }}
+              />
+            ))}
+          </div>
+
+          {/* Glow layer */}
+          <div
+            className="absolute inset-0 pointer-events-none transition-all duration-1000"
+            style={{
+              background: `radial-gradient(circle at 50% 55%, ${emotion.color}30, transparent 55%)`,
+              opacity: state.stats.annoyance > 30 ? 0.85 : 0.55,
+            }}
+          />
+
+          <div className="relative z-10">
+            <KeboCreature
+              emotion={state.emotion}
+              activity={state.activity}
+              energy={state.stats.energy}
+              vitals={state.stats}
+              size={260}
+            />
+          </div>
+        </div>
+
+        {/* Current Emotion */}
+        <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-bold text-slate-100">Current Emotion</h3>
+            <span
+              className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold"
+              style={{ backgroundColor: `${emotion.color}22`, color: emotion.color, border: `1px solid ${emotion.color}33` }}
+            >
+              <span>{emotion.label}</span>
+              <span>{emotion.emoji}</span>
+            </span>
+          </div>
+          <p className="text-sm text-slate-400 mb-4">{moodPhrase}</p>
+          <div className="flex items-center gap-3">
+            <div className="flex-1 h-2 rounded-full bg-white/5 overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all duration-700 ease-out"
+                style={{
+                  width: `${emotionIntensity(state)}%`,
+                  backgroundColor: emotion.color,
+                  boxShadow: `0 0 8px ${emotion.color}66`,
+                }}
+              />
+            </div>
+            <span className="text-sm font-mono tabular-nums text-slate-300">
+              {emotionIntensity(state)}%
+            </span>
+          </div>
+        </div>
+
+        {/* Vitals */}
+        <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-5">
+          <h3 className="text-sm font-bold text-slate-100 mb-4">Vitals</h3>
+          <div className="space-y-3.5">
+            <VitalBar label="Energy"      value={state.stats.energy}      color="#10b981" icon="⚡" />
+            <VitalBar label="Happiness"   value={state.stats.happiness}   color="#f59e0b" icon="💚" />
+            <VitalBar label="Bond"        value={state.stats.bond}        color="#ec4899" icon="👥" />
+            <VitalBar label="Fullness"    value={state.stats.hunger}      color="#22c55e" icon="🌱" warnLow />
+            <VitalBar label="Stimulation" value={state.stats.stimulation} color="#fbbf24" icon="⭐" />
+            <VitalBar label="Annoyance"   value={state.stats.annoyance}   color="#ef4444" icon="😡" warnHigh />
+          </div>
+        </div>
+
+        {/* Recent Memory */}
+        <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-bold text-slate-100">Recent Memory</h3>
+            <span className="text-[10px] text-slate-500 tabular-nums">{memories.length} stored</span>
+          </div>
+          {recentMemories.length === 0 ? (
+            <div className="py-4">
+              <p className="text-xs text-slate-500 text-center leading-relaxed">
+                Tell Kebo something about you —<br />e.g. "My name is Akshaya"
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {recentMemories.map((m) => (
+                <div key={m.id} className="flex items-start gap-2.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 mt-1.5 shrink-0 shadow-[0_0_4px_#34d399]" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-slate-300 leading-relaxed break-words">{m.text}</p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-[10px] text-slate-600 tabular-nums">{formatTime(m.createdAt)}</span>
+                      {m.importance >= 0.7 && (
+                        <span className="inline-flex items-center gap-1 text-[10px] text-amber-400/80">
+                          <Star size={9} fill="currentColor" /> important
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <button
+            onClick={onOpenMemory}
+            className="mt-4 w-full flex items-center justify-between px-3.5 py-2 rounded-xl border border-white/5 bg-white/[0.02] text-xs text-slate-400 hover:bg-white/5 hover:text-slate-200 hover:border-emerald-500/20 transition-colors"
+          >
+            <span>View All Memories</span>
+            <ArrowRight size={14} />
+          </button>
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -501,6 +582,377 @@ function ChatBubble({ msg, prevMsg }: { msg: Message; prevMsg?: Message }) {
 
 function formatTime(ts: number): string {
   return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+}
+
+/* ─── Full Memory View ─── */
+function MemoryView({
+  memories,
+  total,
+  query,
+  onQuery,
+  onClear,
+}: {
+  memories: KeboMemory[];
+  total: number;
+  query: string;
+  onQuery: (value: string) => void;
+  onClear: () => void;
+}) {
+  const [confirmClear, setConfirmClear] = useState(false);
+  return (
+    <div className="flex-1 min-w-0 flex flex-col rounded-3xl border border-white/5 bg-white/[0.02] overflow-hidden">
+      <div className="p-6 sm:p-8 border-b border-white/5">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h3 className="text-xl font-bold text-slate-100 mb-1.5 flex items-center gap-2">
+              <Brain className="text-emerald-400" size={22} />
+              Kebo's Memory
+            </h3>
+            <p className="text-sm text-slate-400 leading-relaxed">
+              Facts Kebo has learned about you and your conversations.
+              {total > 0 && (
+                <span className="ml-1 tabular-nums">
+                  Showing <span className="text-slate-200">{memories.length}</span> of{' '}
+                  <span className="text-slate-200">{total}</span> memories.
+                </span>
+              )}
+            </p>
+          </div>
+          <div className="flex gap-2">
+            {confirmClear ? (
+              <>
+                <button
+                  onClick={() => { onClear(); setConfirmClear(false); }}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl bg-rose-500 hover:bg-rose-400 text-white transition-colors"
+                >
+                  <Trash2 size={13} /> Confirm delete
+                </button>
+                <button
+                  onClick={() => setConfirmClear(false)}
+                  className="px-3.5 py-2 text-xs font-semibold rounded-xl border border-white/10 text-slate-300 hover:bg-white/5 transition-colors"
+                >
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => setConfirmClear(true)}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl border border-white/10 text-slate-400 hover:text-rose-400 hover:border-rose-500/20 hover:bg-rose-500/5 transition-colors"
+              >
+                <Trash2 size={13} /> Clear all
+              </button>
+            )}
+          </div>
+        </div>
+        <div className="mt-5 relative">
+          <input
+            value={query}
+            onChange={(e) => onQuery(e.target.value)}
+            placeholder="Search memories (try 'name', 'like', 'project'…)"
+            className="w-full px-4 py-3 rounded-2xl bg-slate-800/50 border border-slate-700/60 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-emerald-500/40 transition-colors"
+          />
+        </div>
+      </div>
+      <div className="flex-1 min-h-0 overflow-y-auto p-6 sm:p-8 custom-scroll">
+        {memories.length === 0 ? (
+          <EmptyMemoryState hasSome={total > 0} />
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {memories.map((m) => (
+              <article
+                key={m.id}
+                className="group relative p-4 rounded-2xl border border-white/5 bg-white/[0.015] hover:border-emerald-500/20 hover:bg-emerald-500/[0.03] transition-all"
+              >
+                <p className="text-sm text-slate-200 leading-relaxed break-words">
+                  {m.text}
+                </p>
+                <div className="mt-3 flex items-center justify-between text-[11px] text-slate-500 tabular-nums">
+                  <span className="inline-flex items-center gap-1.5">
+                    <Clock size={11} />
+                    {formatDateTime(m.createdAt)}
+                  </span>
+                  <span
+                    className={`inline-flex items-center gap-1 ${
+                      m.importance >= 0.7 ? 'text-amber-400/80' : 'text-slate-600'
+                    }`}
+                  >
+                    <Star size={10} fill={m.importance >= 0.7 ? 'currentColor' : 'none'} />
+                    {Math.round(m.importance * 100)}%
+                  </span>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function EmptyMemoryState({ hasSome }: { hasSome: boolean }) {
+  return (
+    <div className="h-full min-h-[300px] flex flex-col items-center justify-center text-center px-4">
+      <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 grid place-items-center text-3xl mb-4">
+        🧠
+      </div>
+      <h4 className="text-base font-bold text-slate-100 mb-1.5">
+        {hasSome ? 'No matching memories' : 'Kebo hasn\'t learned anything yet'}
+      </h4>
+      <p className="text-sm text-slate-500 leading-relaxed max-w-md">
+        {hasSome
+          ? 'Try a different search term.'
+          : 'Say things like "My name is Akshaya", "I like plants", or "I\'m building an AI project". Kebo stores what it learns here and uses it in conversation.'}
+      </p>
+    </div>
+  );
+}
+
+function formatDateTime(ts: number): string {
+  const d = new Date(ts);
+  const datePart = d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  const timePart = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+  return `${datePart} · ${timePart}`;
+}
+
+/* ─── Stats View ─── */
+function StatsView({ state, messages }: { state: ReturnType<typeof useKebo>['state']; messages: Message[] }) {
+  const messagesSent = messages.filter((m) => m.sender === 'user').length;
+  const messagesReceived = messages.filter((m) => m.sender === 'kebo').length;
+  const emotion = EMOTIONS[state.emotion];
+  const vitals = [
+    { key: 'Energy', value: state.stats.energy, color: '#10b981', icon: '⚡' },
+    { key: 'Happiness', value: state.stats.happiness, color: '#f59e0b', icon: '💚' },
+    { key: 'Bond', value: state.stats.bond, color: '#ec4899', icon: '👥' },
+    { key: 'Fullness', value: state.stats.hunger, color: '#22c55e', icon: '🌱' },
+    { key: 'Stimulation', value: state.stats.stimulation, color: '#fbbf24', icon: '⭐' },
+    { key: 'Annoyance', value: state.stats.annoyance, color: '#ef4444', icon: '😡' },
+  ] as const;
+
+  return (
+    <div className="flex-1 min-w-0 flex flex-col gap-6 overflow-y-auto custom-scroll">
+      <div className="rounded-3xl border border-white/5 bg-white/[0.02] p-6 sm:p-8">
+        <h3 className="text-xl font-bold text-slate-100 mb-5 flex items-center gap-2">
+          <BarChart3 className="text-emerald-400" size={22} />
+          Overview
+        </h3>
+        <div className="grid gap-4 sm:grid-cols-3">
+          <StatCard label="Current Emotion" value={emotion.label} sub={emotion.emoji + ' ' + EMOTION_DESCRIPTIONS[state.emotion]} color={emotion.color} />
+          <StatCard label="You've said" value={String(messagesSent)} sub={messagesSent === 1 ? 'message' : 'messages'} />
+          <StatCard label="Kebo replied" value={String(messagesReceived)} sub={messagesReceived === 1 ? 'response' : 'responses'} />
+        </div>
+      </div>
+
+      <div className="rounded-3xl border border-white/5 bg-white/[0.02] p-6 sm:p-8">
+        <h3 className="text-lg font-bold text-slate-100 mb-5">Vitals</h3>
+        <div className="grid gap-5 sm:grid-cols-2">
+          {vitals.map((v) => (
+            <div key={v.key}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="flex items-center gap-2 text-sm font-medium text-slate-200">
+                  <span>{v.icon}</span>
+                  {v.key}
+                </span>
+                <span className="text-sm font-mono tabular-nums text-slate-300">{Math.round(v.value)}%</span>
+              </div>
+              <div className="h-3 rounded-full bg-white/5 overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all duration-700"
+                  style={{
+                    width: `${v.value}%`,
+                    backgroundColor: v.color,
+                    boxShadow: `0 0 10px ${v.color}55`,
+                  }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="rounded-3xl border border-white/5 bg-white/[0.02] p-6 sm:p-8">
+        <h3 className="text-lg font-bold text-slate-100 mb-4">Personality</h3>
+        <div className="grid gap-4 sm:grid-cols-2">
+          {(
+            [
+              { k: 'Openness', v: state.personality.openness },
+              { k: 'Conscientiousness', v: state.personality.conscientiousness },
+              { k: 'Extraversion', v: state.personality.extraversion },
+              { k: 'Agreeableness', v: state.personality.agreeableness },
+              { k: 'Neuroticism', v: state.personality.neuroticism },
+            ] as const
+          ).map((t) => (
+            <div key={t.k}>
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-xs font-medium text-slate-300">{t.k}</span>
+                <span className="text-[11px] font-mono tabular-nums text-slate-400">{Math.round(t.v * 100)}%</span>
+              </div>
+              <div className="h-1.5 rounded-full bg-white/5 overflow-hidden">
+                <div className="h-full rounded-full bg-emerald-500" style={{ width: `${t.v * 100}%` }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const EMOTION_DESCRIPTIONS: Record<string, string> = {
+  joy:     'Cheerful and positive',
+  calm:    'Relaxed and at peace',
+  curious: 'Curious and engaged',
+  sad:     'Feeling a bit down',
+  angry:   'Frustrated and annoyed',
+  anxious: 'A little on edge',
+  tired:   'Sleepy, needs a rest',
+  playful: 'Playful and bouncy',
+};
+
+function StatCard({ label, value, sub, color }: { label: string; value: string; sub: string; color?: string }) {
+  return (
+    <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-4 sm:p-5">
+      <p className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold mb-2">{label}</p>
+      <p
+        className="text-2xl font-extrabold tabular-nums mb-1"
+        style={color ? { color } : undefined}
+      >
+        {value}
+      </p>
+      <p className="text-xs text-slate-400">{sub}</p>
+    </div>
+  );
+}
+
+/* ─── Settings View ─── */
+function SettingsView({
+  onClearMessages,
+  onClearMemories,
+}: {
+  onClearMessages: () => void;
+  onClearMemories: () => void;
+}) {
+  const [didClearMsgs, setDidClearMsgs] = useState(false);
+  const [didClearMems, setDidClearMems] = useState(false);
+
+  return (
+    <div className="flex-1 min-w-0 flex flex-col overflow-y-auto custom-scroll">
+      <div className="rounded-3xl border border-white/5 bg-white/[0.02] p-6 sm:p-8 space-y-8 max-w-3xl">
+        <div>
+          <h3 className="text-xl font-bold text-slate-100 mb-1.5 flex items-center gap-2">
+            <Settings className="text-emerald-400" size={22} />
+            Settings
+          </h3>
+          <p className="text-sm text-slate-400 leading-relaxed">
+            Danger zone and general preferences. More settings coming soon.
+          </p>
+        </div>
+
+        <Section title="Data & Storage">
+          <DangerRow
+            title="Clear conversation"
+            description="Delete the current chat history. Kebo's memories and vitals remain unchanged."
+            buttonLabel={didClearMsgs ? 'Cleared' : 'Clear messages'}
+            buttonVariant="ghost"
+            onClick={() => {
+              onClearMessages();
+              setDidClearMsgs(true);
+              setTimeout(() => setDidClearMsgs(false), 1500);
+            }}
+          />
+          <DangerRow
+            title="Clear all memories"
+            description="Permanently erase every fact Kebo has learned. This cannot be undone."
+            buttonLabel={didClearMems ? 'Cleared' : 'Clear memories'}
+            buttonVariant="danger"
+            onClick={() => {
+              onClearMemories();
+              setDidClearMems(true);
+              setTimeout(() => setDidClearMems(false), 1500);
+            }}
+          />
+        </Section>
+
+        <Section title="About Kebo">
+          <div className="rounded-2xl border border-white/5 bg-white/[0.015] p-5">
+            <p className="text-sm text-slate-300 leading-relaxed">
+              <span className="text-emerald-400 font-bold">KEBO</span> is a plant-like AI companion with
+              persistent emotion, memory and personality. Every conversation shifts Kebo's mood, builds
+              your bond, and feeds into a growing memory graph of the things you tell it.
+            </p>
+            <dl className="mt-4 grid grid-cols-2 gap-3 text-xs text-slate-400">
+              <div><dt className="text-slate-500">Frontend</dt><dd className="text-slate-200">React + TS + Vite</dd></div>
+              <div><dt className="text-slate-500">Emotions</dt><dd className="text-slate-200">8 core states</dd></div>
+              <div><dt className="text-slate-500">Vitals</dt><dd className="text-slate-200">6 tracked</dd></div>
+              <div><dt className="text-slate-500">Memory</dt><dd className="text-slate-200">Fact extraction + retrieval</dd></div>
+            </dl>
+          </div>
+        </Section>
+      </div>
+    </div>
+  );
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-3">{title}</h4>
+      <div className="space-y-3">{children}</div>
+    </div>
+  );
+}
+
+function DangerRow({
+  title,
+  description,
+  buttonLabel,
+  buttonVariant,
+  onClick,
+}: {
+  title: string;
+  description: string;
+  buttonLabel: string;
+  buttonVariant: 'ghost' | 'danger';
+  onClick: () => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-white/5 bg-white/[0.015] p-4 hover:border-white/10 transition-colors">
+      <div className="min-w-0">
+        <p className="text-sm font-semibold text-slate-100">{title}</p>
+        <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">{description}</p>
+      </div>
+      <button
+        onClick={onClick}
+        className={
+          buttonVariant === 'danger'
+            ? 'px-4 py-2 text-xs font-semibold rounded-xl bg-rose-500 hover:bg-rose-400 text-white transition-colors'
+            : 'px-4 py-2 text-xs font-semibold rounded-xl border border-white/10 text-slate-300 hover:text-rose-400 hover:border-rose-500/20 hover:bg-rose-500/5 transition-colors'
+        }
+      >
+        {buttonLabel}
+      </button>
+    </div>
+  );
+}
+
+/* ─── Voice Chat placeholder (Step 5 in roadmap) ─── */
+function VoiceChatPlaceholder() {
+  return (
+    <div className="flex-1 min-w-0 flex items-center justify-center rounded-3xl border border-white/5 bg-white/[0.02] p-8">
+      <div className="max-w-md text-center">
+        <div className="w-20 h-20 mx-auto rounded-3xl bg-emerald-500/10 border border-emerald-500/20 grid place-items-center text-4xl mb-5">
+          🎙️
+        </div>
+        <h3 className="text-xl font-bold text-slate-100 mb-2">Voice chat is coming soon</h3>
+        <p className="text-sm text-slate-400 leading-relaxed">
+          Speech → Speech-to-text → LLM with memory + emotion → Response → Text-to-speech → Kebo expression.
+          First we're stabilising memory and emotion (Steps 1–4), then voice lands here.
+        </p>
+        <div className="mt-5 inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-semibold">
+          Planned · Step 5
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default App;

@@ -45,6 +45,76 @@ function isLikelyIncompleteReply(reply) {
     || !/[.!?'"”’)\]}]$/.test(trimmed);
 }
 
+const REASONING_INTENTS = ['greeting', 'question', 'emotional_support', 'information_request', 'memory', 'general_chat'];
+const RESPONSE_STRATEGIES = ['greet', 'answer_briefly', 'support', 'acknowledge_limits', 'recall_memory', 'clarify'];
+
+function localReasoningPlan(message, emotion, relevantMemories) {
+  const text = message.toLowerCase();
+  const intent = /\b(hello|hi|hey)\b/.test(text)
+    ? 'greeting'
+    : /\b(remember|recall|know about me)\b/.test(text)
+      ? 'memory'
+      : /\b(frustrated|sad|tired|overwhelmed|stressed|do not want to work)\b/.test(text)
+        ? 'emotional_support'
+        : /\b(explain|what is|how|why|information|tell me)\b/.test(text) || text.endsWith('?')
+          ? 'question'
+          : 'general_chat';
+  const strategy = intent === 'greeting'
+    ? 'greet'
+    : intent === 'emotional_support'
+      ? 'support'
+      : intent === 'memory'
+        ? 'recall_memory'
+        : 'answer_briefly';
+  return {
+    intent,
+    userGoal: intent === 'emotional_support' ? 'feel understood and supported' : 'receive a direct response',
+    userEmotion: emotion || 'calm',
+    memoryToUse: relevantMemories.slice(0, 3),
+    responseStrategy: strategy,
+    keboStateChange: emotion || 'calm',
+  };
+}
+
+function isValidReasoningPlan(value) {
+  return value
+    && REASONING_INTENTS.includes(value.intent)
+    && typeof value.userGoal === 'string'
+    && typeof value.userEmotion === 'string'
+    && Array.isArray(value.memoryToUse)
+    && value.memoryToUse.every((memory) => typeof memory === 'string')
+    && RESPONSE_STRATEGIES.includes(value.responseStrategy)
+    && typeof value.keboStateChange === 'string';
+}
+
+async function createReasoningPlan({ message, emotion, relevantMemories, currentState }) {
+  const fallback = localReasoningPlan(message, emotion, relevantMemories);
+  try {
+    const response = await client.chat.completions.create({
+      model,
+      temperature: 0,
+      max_tokens: 120,
+      messages: [
+        {
+          role: 'system',
+          content: `You are Kebo's reasoning planner. Return only valid JSON with this exact shape:
+{"intent":"greeting|question|emotional_support|information_request|memory|general_chat","userGoal":"short phrase","userEmotion":"joy|sad|angry|curious|calm|playful|tired|anxious","memoryToUse":["short memory"],"responseStrategy":"greet|answer_briefly|support|acknowledge_limits|recall_memory|clarify","keboStateChange":"short state decision"}.
+Choose one intent and strategy. Use only the supplied memories. Never invent current events or facts. Plan a concise answer, not a second response. Current Kebo emotion: ${emotion || 'calm'}. Current state: ${JSON.stringify(currentState || {})}.`,
+        },
+        { role: 'user', content: message.trim() },
+      ],
+    });
+    const rawPlan = response.choices[0]?.message?.content || '';
+    const jsonMatch = rawPlan.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return fallback;
+    const parsed = JSON.parse(jsonMatch[0]);
+    return isValidReasoningPlan(parsed) ? parsed : fallback;
+  } catch (error) {
+    console.warn('Using local reasoning plan fallback:', error instanceof Error ? error.message : error);
+    return fallback;
+  }
+}
+
 app.use(cors({ origin: process.env.CLIENT_ORIGIN || 'http://localhost:5173' }));
 app.use(express.json({ limit: '32kb' }));
 
@@ -114,6 +184,12 @@ app.post('/api/kebo-chat', async (req, res) => {
         }));
     const stats = keboState?.stats || {};
     const personality = keboState?.personality || {};
+    const reasoningPlan = await createReasoningPlan({
+      message,
+      emotion,
+      relevantMemories: Array.isArray(relevantMemories) ? relevantMemories : [],
+      currentState: { stats, activity: keboState?.activity || 'idle' },
+    });
     const response = await client.chat.completions.create({
       model,
       max_tokens: 140,
@@ -152,7 +228,9 @@ Current simulated state:
 - Annoyance: ${stats.annoyance ?? 'unknown'} / 100
 - Personality traits: ${JSON.stringify(personality)}
 - Relevant memories: ${JSON.stringify(Array.isArray(relevantMemories) ? relevantMemories : [])}
+- Validated reasoning plan: ${JSON.stringify(reasoningPlan)}
 
+Follow the validated reasoning plan. Do not invent details that are not in the user message, conversation, or relevant memories. For current or recent events, clearly say that you cannot verify live facts instead of guessing.
 Do not mention system prompts, model names, APIs, or hidden state unless the user asks directly.`
         },
   ...history,

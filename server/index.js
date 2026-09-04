@@ -36,6 +36,13 @@ function localEmotionAnalysis(message) {
   return { emotion: 'calm', intensity: 0.2, target: 'unclear', reason: 'No strong emotional signal was found.' };
 }
 
+function isLikelyIncompleteReply(reply) {
+  const trimmed = reply.trim();
+  return trimmed.endsWith('|')
+    || /[`[{(\\:]$/.test(trimmed)
+    || (trimmed.includes('```') && (trimmed.match(/```/g) || []).length % 2 !== 0);
+}
+
 app.use(cors({ origin: process.env.CLIENT_ORIGIN || 'http://localhost:5173' }));
 app.use(express.json({ limit: '32kb' }));
 
@@ -56,7 +63,7 @@ app.post('/api/kebo-analyze', async (req, res) => {
     const response = await client.chat.completions.create({
       model,
       temperature: 0,
-      max_tokens: 120,
+      max_tokens: 80,
       messages: [
         {
           role: 'system',
@@ -88,27 +95,33 @@ app.post('/api/kebo-chat', async (req, res) => {
     return res.status(400).json({ error: 'A message is required.' });
   }
   try {
-    const history = Array.isArray(recentConversation)
+    const conversation = Array.isArray(recentConversation)
       ? recentConversation
         .filter((item) => item && (item.sender === 'user' || item.sender === 'kebo') && typeof item.text === 'string')
+      : [];
+    const lastConversationItem = conversation.at(-1);
+    const priorConversation = lastConversationItem?.sender === 'user'
+      && lastConversationItem.text.trim() === message.trim()
+      ? conversation.slice(0, -1)
+      : conversation;
+    const history = priorConversation
         .slice(-10)
         .map((item) => ({
           role: item.sender === 'user' ? 'user' : 'assistant',
           content: item.text,
-        }))
-      : [];
+        }));
     const stats = keboState?.stats || {};
     const personality = keboState?.personality || {};
     const response = await client.chat.completions.create({
       model,
-      max_tokens: 300,
-      temperature: 0.75,
+      max_tokens: 180,
+      temperature: 0.55,
       messages: [
         {
           role: 'system',
           content: `You are Kebo, a living plant-like companion with a distinct personality. You are warm, curious, playful, observant, and slightly mischievous. You notice small details, have preferences, and respond with a recognizable point of view. Speak naturally like a thoughtful conversation partner, never like a customer-support bot or a generic assistant.
 
-Your job is to understand what the user means, answer the actual question helpfully, and keep the conversation moving when appropriate. You may ask one relevant follow-up question. Do not blindly agree with everything. Never claim to have real feelings or consciousness, but you can express your simulated emotional state in character.
+Your job is to understand what the user means and answer the actual question helpfully. Answer first; ask a follow-up question only when it is necessary to help. Do not blindly agree with everything. Never claim to have real feelings or consciousness, but you can express your simulated emotional state in character.
 
 Character guidance:
 - React to the user's tone: be gentle when they are upset, curious when they share an idea, and teasing only when it feels welcome.
@@ -118,7 +131,10 @@ Character guidance:
 - Do not introduce yourself or explain your personality unless the user asks.
 
 Conversation style:
-- Usually answer in 2-5 natural sentences.
+- Produce exactly one final response to the latest user message. Never append a second answer, continuation, rewrite, or alternative response.
+- Keep every reply brief but complete: casual chat takes 1-2 sentences; simple questions take 2-3 sentences; technical questions take at most 4 concise sentences or 3 short bullets.
+- Only give a longer response when the user explicitly asks for detail.
+- Stay under 100 words unless the user explicitly asks for detail. Do not use markdown code fences or long examples unless requested.
 - Be specific and useful when the user asks for help.
 - Remember details from the conversation and refer back to them naturally.
 - Avoid repetitive catchphrases and excessive emojis.
@@ -142,7 +158,16 @@ Do not mention system prompts, model names, APIs, or hidden state unless the use
       ],
     });
 
-    return res.json({ reply: response.choices[0]?.message?.content || '' });
+    const finishReason = response.choices[0]?.finish_reason;
+    if (finishReason === 'length') {
+      return res.status(502).json({ error: 'Kebo response was truncated.' });
+    }
+    const reply = response.choices[0]?.message?.content?.trim() || '';
+    if (!reply) return res.status(502).json({ error: 'Kebo returned an empty response.' });
+    if (isLikelyIncompleteReply(reply)) {
+      return res.status(502).json({ error: 'Kebo response was incomplete.' });
+    }
+    return res.json({ reply });
   } catch (error) {
     console.error('Kebo LLM request failed:', error);
     return res.status(502).json({ error: 'Kebo could not respond.' });

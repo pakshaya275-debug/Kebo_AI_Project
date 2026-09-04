@@ -44,6 +44,7 @@ export function extractMemories(text: string): string[] {
   const patterns: { re: RegExp; format: (groups: RegExpMatchArray) => string | null }[] = [
     { re: /\bmy name is ([a-z][a-z .\-_']{1,40})/i, format: (m) => `The user's name is ${m[1]?.trim()}.` },
     { re: /\bcall me ([a-z][a-z .\-_']{1,40})/i, format: (m) => `The user wants to be called ${m[1]?.trim()}.` },
+    { re: /\bI(?:'m| am)\s+([A-Z][a-z .\-_']{1,40})[.!?]?$/, format: (m) => `The user's name is ${m[1]?.trim()}.` },
     { re: /\bi(?:'m| am) (?:working on|building|making|creating|developing|doing|studying|preparing for) ([^.?!]{3,120})/i,
       format: (m) => `The user is working on / building: ${m[1]?.trim()}.` },
     { re: /\bi (?:like|love|enjoy|adore|really like) ([^.?!]{3,120})/i,

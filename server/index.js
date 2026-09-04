@@ -41,7 +41,8 @@ function isLikelyIncompleteReply(reply) {
   return trimmed.endsWith('|')
     || /\.{3}$/.test(trimmed)
     || /[`[{(\\:]$/.test(trimmed)
-    || (trimmed.includes('```') && (trimmed.match(/```/g) || []).length % 2 !== 0);
+    || (trimmed.includes('```') && (trimmed.match(/```/g) || []).length % 2 !== 0)
+    || !/[.!?'"”’)\]}]$/.test(trimmed);
 }
 
 app.use(cors({ origin: process.env.CLIENT_ORIGIN || 'http://localhost:5173' }));

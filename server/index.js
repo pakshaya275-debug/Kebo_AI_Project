@@ -39,6 +39,7 @@ function localEmotionAnalysis(message) {
 function isLikelyIncompleteReply(reply) {
   const trimmed = reply.trim();
   return trimmed.endsWith('|')
+    || /\.{3}$/.test(trimmed)
     || /[`[{(\\:]$/.test(trimmed)
     || (trimmed.includes('```') && (trimmed.match(/```/g) || []).length % 2 !== 0);
 }
@@ -114,7 +115,7 @@ app.post('/api/kebo-chat', async (req, res) => {
     const personality = keboState?.personality || {};
     const response = await client.chat.completions.create({
       model,
-      max_tokens: 180,
+      max_tokens: 140,
       temperature: 0.55,
       messages: [
         {
@@ -132,9 +133,9 @@ Character guidance:
 
 Conversation style:
 - Produce exactly one final response to the latest user message. Never append a second answer, continuation, rewrite, or alternative response.
-- Keep every reply brief but complete: casual chat takes 1-2 sentences; simple questions take 2-3 sentences; technical questions take at most 4 concise sentences or 3 short bullets.
+- Keep every reply brief but complete: casual chat takes 1-2 sentences; simple questions take 2 sentences; technical questions take at most 3 concise sentences or 3 short bullets.
 - Only give a longer response when the user explicitly asks for detail.
-- Stay under 100 words unless the user explicitly asks for detail. Do not use markdown code fences or long examples unless requested.
+- Stay under 75 words unless the user explicitly asks for detail. Do not use markdown headings, tables, code fences, or long examples unless requested.
 - Be specific and useful when the user asks for help.
 - Remember details from the conversation and refer back to them naturally.
 - Avoid repetitive catchphrases and excessive emojis.

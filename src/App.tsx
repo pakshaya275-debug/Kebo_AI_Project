@@ -1,11 +1,27 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MessageCircle, Mic, Brain, BarChart3, Settings, Sun, Moon, ChevronDown, Send, Trash2, Clock, Star, ArrowRight } from 'lucide-react';
 import { KeboCreature } from './components/KeboCreature';
 import { useKebo } from './hooks/useKebo';
-import { EMOTIONS, type Message, type VitalStats } from './types/kebo';
+import { EMOTIONS, type Message } from './types/kebo';
 import { type KeboMemory, retrieveMemories } from './lib/memory';
+import { useSpeechRecognition, type SpeechRecognitionControls } from './hooks/useSpeechRecognition';
 
 type NavItem = 'chat' | 'voice' | 'memory' | 'stats' | 'settings';
+
+const SPEECH_LANGUAGES = [
+  ['auto', 'Auto-detect'],
+  ['en-US', 'English (US)'],
+  ['en-IN', 'English (India)'],
+  ['hi-IN', 'Hindi'],
+  ['ta-IN', 'Tamil'],
+  ['te-IN', 'Telugu'],
+  ['bn-IN', 'Bengali'],
+  ['es-ES', 'Spanish'],
+  ['fr-FR', 'French'],
+  ['de-DE', 'German'],
+  ['ja-JP', 'Japanese'],
+  ['ko-KR', 'Korean'],
+].map(([value, label]) => ({ value, label }));
 
 const MOOD_PHRASES: Record<string, string> = {
   joy:     'Kebo is feeling cheerful and positive!',
@@ -24,8 +40,41 @@ function App() {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [darkMode, setDarkMode] = useState(true);
   const [memoryQuery, setMemoryQuery] = useState('');
+  const voiceSessionRef = useRef(false);
+  const voiceBaselineMessageRef = useRef<string | null>(null);
+  const spokenVoiceMessageRef = useRef<string | null>(null);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const handleVoiceTranscript = useCallback((transcript: string) => {
+    voiceSessionRef.current = true;
+    voiceBaselineMessageRef.current = messages[messages.length - 1]?.id || null;
+    sendMessage(transcript);
+  }, [messages, sendMessage]);
+  const voice = useSpeechRecognition(handleVoiceTranscript);
 
-  const emotion = EMOTIONS[state.emotion];
+  useEffect(() => {
+    if (!voiceSessionRef.current) return;
+    const latest = messages[messages.length - 1];
+    if (!latest || latest.sender !== 'kebo' || latest.id === spokenVoiceMessageRef.current || latest.id === voiceBaselineMessageRef.current) return;
+    spokenVoiceMessageRef.current = latest.id;
+    if (!('speechSynthesis' in window)) return;
+    const utterance = new SpeechSynthesisUtterance(latest.text);
+    const voices = window.speechSynthesis.getVoices();
+    utterance.lang = voice.language;
+    utterance.voice = voices.find((candidate) => candidate.lang.toLowerCase().startsWith(voice.language.toLowerCase().split('-')[0]) && /female|child|samantha|zira|aria|jenny|google/i.test(candidate.name))
+      || voices.find((candidate) => candidate.lang.toLowerCase().startsWith(voice.language.toLowerCase().split('-')[0]))
+      || null;
+    utterance.pitch = 1.5;
+    utterance.rate = 0.98;
+    utterance.volume = 0.9;
+    utterance.onstart = () => setIsSpeaking(true);
+    utterance.onend = () => setIsSpeaking(false);
+    utterance.onerror = () => setIsSpeaking(false);
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+  }, [messages, voice.language]);
+
+  useEffect(() => () => window.speechSynthesis?.cancel(), []);
+
   const moodPhrase = MOOD_PHRASES[state.emotion] ?? 'Existing in the moment.';
 
   const navItems: { key: NavItem; label: string; icon: React.ReactNode }[] = [
@@ -158,7 +207,7 @@ function App() {
           ) : activeNav === 'settings' ? (
             <SettingsView onClearMessages={clearMessages} onClearMemories={clearMemories} />
           ) : activeNav === 'voice' ? (
-            <VoiceChatPlaceholder />
+            <VoiceChatView voice={voice} messages={messages} isThinking={isThinking} isSpeaking={isSpeaking} state={state} />
           ) : (
             <DefaultChatLayout
               messages={messages}
@@ -934,21 +983,47 @@ function DangerRow({
   );
 }
 
-/* ─── Voice Chat placeholder (Step 5 in roadmap) ─── */
-function VoiceChatPlaceholder() {
+/* ─── Push-to-talk voice chat ─── */
+function VoiceChatView({ voice, messages, isThinking, isSpeaking, state }: { voice: SpeechRecognitionControls; messages: Message[]; isThinking: boolean; isSpeaking: boolean; state: ReturnType<typeof useKebo>['state'] }) {
+  const latestReply = [...messages].reverse().find((message) => message.sender === 'kebo');
   return (
     <div className="flex-1 min-w-0 flex items-center justify-center rounded-3xl border border-white/5 bg-white/[0.02] p-8">
-      <div className="max-w-md text-center">
-        <div className="w-20 h-20 mx-auto rounded-3xl bg-emerald-500/10 border border-emerald-500/20 grid place-items-center text-4xl mb-5">
-          🎙️
+      <div className="max-w-lg w-full text-center">
+        <div className={`relative w-40 h-40 mx-auto mb-5 rounded-full grid place-items-center transition-all ${voice.isListening || isSpeaking ? 'bg-emerald-500/15 border-emerald-400/50 shadow-[0_0_45px_rgba(16,185,129,.35)]' : 'bg-emerald-500/5 border-emerald-500/20'} border`}>
+          <KeboCreature emotion={state.emotion} activity={isSpeaking ? 'talking' : voice.isListening ? 'thinking' : 'idle'} energy={state.stats.energy} size={150} />
+          <span className="absolute -bottom-2 right-1/2 translate-x-1/2 text-xl">{voice.isListening ? '🎙️' : isSpeaking ? '🔊' : '🌱'}</span>
         </div>
-        <h3 className="text-xl font-bold text-slate-100 mb-2">Voice chat is coming soon</h3>
-        <p className="text-sm text-slate-400 leading-relaxed">
-          Speech → Speech-to-text → LLM with memory + emotion → Response → Text-to-speech → Kebo expression.
-          First we're stabilising memory and emotion (Steps 1–4), then voice lands here.
+        <h3 className="text-xl font-bold text-slate-100 mb-2">{voice.isListening ? 'Kebo is listening...' : isThinking ? 'Kebo is thinking...' : isSpeaking ? 'Kebo is speaking...' : 'Talk to Kebo'}</h3>
+        <p className="text-sm text-slate-400 leading-relaxed min-h-10">
+          {voice.isListening ? voice.transcript || 'Listening...' : isThinking ? 'Kebo is thinking...' : isSpeaking ? latestReply?.text || 'Kebo is speaking...' : voice.transcript || latestReply?.text || 'Press the microphone and speak. Kebo will answer aloud.'}
         </p>
-        <div className="mt-5 inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-semibold">
-          Planned · Step 5
+        <button
+          type="button"
+          onClick={voice.isListening ? voice.stopListening : voice.startListening}
+          disabled={!voice.isSupported}
+          className={`mt-6 inline-flex items-center gap-2 px-5 py-3 rounded-2xl text-sm font-semibold transition-all ${voice.isSupported ? 'bg-emerald-500 hover:bg-emerald-400 text-white' : 'bg-slate-700 text-slate-400 cursor-not-allowed'}`}
+        >
+          <Mic size={18} />
+          {voice.isListening ? 'Stop listening' : 'Start speaking'}
+        </button>
+        <label className="mt-4 flex items-center justify-center gap-2 text-xs text-slate-500">
+          Language
+          <select
+            value={voice.language}
+            onChange={(event) => voice.setLanguage(event.target.value)}
+            className="rounded-lg border border-white/10 bg-slate-900 px-2 py-1 text-slate-300 outline-none"
+            disabled={voice.isListening}
+          >
+            {SPEECH_LANGUAGES.map((language) => (
+              <option key={language.value} value={language.value}>{language.label}</option>
+            ))}
+          </select>
+        </label>
+        <p className={`mt-4 text-xs ${voice.error ? 'text-rose-400' : 'text-slate-500'}`}>
+          {voice.error || (voice.isSupported ? 'Push to talk · Whisper transcription · Kebo replies aloud' : 'Audio recording is not supported in this browser. Use Chat instead.')}
+        </p>
+        <div className="mt-6 inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold">
+          Whisper voice input · multilingual
         </div>
       </div>
     </div>

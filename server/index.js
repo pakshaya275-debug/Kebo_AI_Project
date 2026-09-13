@@ -1,6 +1,7 @@
 import cors from 'cors';
 import dotenv from 'dotenv';
 import express from 'express';
+import multer from 'multer';
 import OpenAI from 'openai';
 
 dotenv.config();
@@ -11,6 +12,7 @@ const baseURL = process.env.OPENAI_BASE_URL || 'http://127.0.0.1:1234/v1';
 const model = process.env.OPENAI_MODEL || 'local-model';
 const apiKey = process.env.OPENAI_API_KEY || 'openai-compatible';
 const client = new OpenAI({ apiKey, baseURL });
+const upload = multer({ limits: { fileSize: 10 * 1024 * 1024 } });
 
 function localEmotionAnalysis(message) {
   const text = message.toLowerCase();
@@ -41,8 +43,7 @@ function isLikelyIncompleteReply(reply) {
   return trimmed.endsWith('|')
     || /\.{3}$/.test(trimmed)
     || /[`[{(\\:]$/.test(trimmed)
-    || (trimmed.includes('```') && (trimmed.match(/```/g) || []).length % 2 !== 0)
-    || !/[.!?'"”’)\]}]$/.test(trimmed);
+    || (trimmed.includes('```') && (trimmed.match(/```/g) || []).length % 2 !== 0);
 }
 
 const REASONING_INTENTS = ['greeting', 'question', 'emotional_support', 'information_request', 'memory', 'general_chat'];
@@ -123,6 +124,25 @@ app.get('/api/health', (_req, res) => {
   const configured = Boolean(process.env.OPENAI_API_KEY)
     && !process.env.OPENAI_API_KEY.startsWith('YOUR_');
   res.json({ ok: true, provider, configured, model });
+});
+
+app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Audio is required.' });
+  try {
+    const language = typeof req.body?.language === 'string' && req.body.language !== 'auto'
+      ? req.body.language.split('-')[0]
+      : undefined;
+    const transcription = await client.audio.transcriptions.create({
+      file: await OpenAI.toFile(req.file.buffer, req.file.originalname || 'kebo-voice.webm', { type: req.file.mimetype }),
+      model: process.env.TRANSCRIPTION_MODEL || 'whisper-large-v3-turbo',
+      ...(language ? { language } : {}),
+      response_format: 'json',
+    });
+    return res.json({ text: transcription.text?.trim() || '' });
+  } catch (error) {
+    console.error('Kebo transcription failed:', error);
+    return res.status(502).json({ error: 'Kebo could not understand the recording.' });
+  }
 });
 
 app.post('/api/kebo-analyze', async (req, res) => {
@@ -247,7 +267,7 @@ Do not mention system prompts, model names, APIs, or hidden state unless the use
     if (isLikelyIncompleteReply(reply)) {
       return res.status(502).json({ error: 'Kebo response was incomplete.' });
     }
-    return res.json({ reply });
+    return res.json({ reply, reasoningPlan });
   } catch (error) {
     console.error('Kebo LLM request failed:', error);
     return res.status(502).json({ error: 'Kebo could not respond.' });

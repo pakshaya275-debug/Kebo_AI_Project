@@ -849,3 +849,35 @@ KEBO is an independent project exploring agentic AI, conversational systems, per
 License to be determined.
 
 This project is currently an independent development project and may change licensing terms before public release.
+
+---
+
+# Current Setup
+
+The app currently includes:
+
+- React/Vite frontend
+- Express backend with Groq-compatible LLM calls
+- Structured emotion analysis and reasoning plans
+- Supabase-backed memory with localStorage fallback
+- Push-to-talk audio recording with Whisper transcription
+- Voice replies through browser speech synthesis
+
+## Local Development
+
+Run the backend and frontend in separate terminals:
+
+```powershell
+npm run server
+npm run dev
+```
+
+The frontend runs at `http://localhost:5173` and the backend at `http://localhost:3001`.
+
+## Deployment
+
+Deploy the backend using `render.yaml` on Render. Set `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `OPENAI_MODEL`, `TRANSCRIPTION_MODEL`, and `CLIENT_ORIGIN` in Render environment variables.
+
+Deploy the Vite frontend on Vercel. Set `VITE_KEBO_API_URL`, `VITE_KEBO_ANALYZE_URL`, and `VITE_KEBO_TRANSCRIBE_URL` to the deployed backend endpoints. Set the Supabase public URL and anon key as `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
+
+Never commit `.env` or private API keys.

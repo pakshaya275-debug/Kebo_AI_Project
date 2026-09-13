@@ -7,6 +7,15 @@ export interface KeboEmotionAnalysis {
   reason: string;
 }
 
+export interface KeboReasoningPlan {
+  intent: 'greeting' | 'question' | 'emotional_support' | 'information_request' | 'memory' | 'general_chat';
+  userGoal: string;
+  userEmotion: EmotionKey;
+  memoryToUse: string[];
+  responseStrategy: 'greet' | 'answer_briefly' | 'support' | 'acknowledge_limits' | 'recall_memory' | 'clarify';
+  keboStateChange: string;
+}
+
 interface AskKeboArgs {
   message: string;
   keboState: KeboState;
@@ -43,7 +52,7 @@ export async function askKeboLLM({
   recentConversation,
   relevantMemories,
   signal,
-}: AskKeboArgs): Promise<string> {
+}: AskKeboArgs): Promise<{ text: string; reasoningPlan?: KeboReasoningPlan }> {
   const response = await fetch(API_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -57,10 +66,10 @@ export async function askKeboLLM({
     signal,
   });
 
-  const data = (await response.json()) as { reply?: string; error?: string };
+  const data = (await response.json()) as { reply?: string; reasoningPlan?: KeboReasoningPlan; error?: string };
   if (!response.ok || typeof data.reply !== 'string' || !data.reply.trim()) {
     throw new Error(data.error || 'Kebo backend failed.');
   }
 
-  return data.reply.trim();
+  return { text: data.reply.trim(), reasoningPlan: data.reasoningPlan };
 }

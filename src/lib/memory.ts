@@ -3,7 +3,10 @@ import type { Message } from '../types/kebo';
 export interface KeboMemory {
   id: string;
   text: string;
+  type: 'user_fact' | 'preference' | 'goal' | 'emotion' | 'event';
   importance: number;
+  confidence: number;
+  source: 'user_message' | 'reasoning_plan';
   createdAt: number;
   lastUsedAt: number;
 }
@@ -19,9 +22,15 @@ export function loadMemories(): KeboMemory[] {
       && memory !== null
       && typeof memory.text === 'string'
       && typeof memory.importance === 'number'
+      && (memory.type === 'user_fact' || memory.type === 'preference' || memory.type === 'goal' || memory.type === 'emotion' || memory.type === 'event' || memory.type === undefined)
       && typeof memory.createdAt === 'number'
       && typeof memory.lastUsedAt === 'number'
-    ));
+    )).map((memory) => ({
+      ...memory,
+      type: memory.type || 'user_fact',
+      confidence: memory.confidence ?? 0.8,
+      source: memory.source || 'user_message',
+    }));
   } catch {
     return [];
   }
@@ -56,7 +65,7 @@ export function extractMemories(text: string): string[] {
     { re: /\bi (?:feel|am feeling|'m feeling) (?:happy|sad|angry|tired|anxious|stressed|excited|nervous|great|good|bad|okay|ok) ([^.?!]*)$/i,
       format: (m) => `The user shared their current mood (${m[0]?.replace(/^i (?:feel|am feeling|'m feeling) /i, '')}).` },
     { re: /\bmy (?:birthday|fav|favorite|favourite|hobby|pet|dog|cat|major|course|degree|school|college|university|project|work|job|dream|goal) is ([^.?!]{3,120})/i,
-      format: (m) => `The user said: ${normalized}.` },
+      format: () => `The user said: ${normalized}.` },
     { re: /\bi (?:live|stay) in ([^.?!]{2,80})/i,
       format: (m) => `The user lives in ${m[1]?.trim()}.` },
     { re: /\bi (?:will|'ll|am going to|plan to) ([^.?!]{3,120})/i,
@@ -97,9 +106,26 @@ export function addMemories(existing: KeboMemory[], texts: string[]): KeboMemory
   const next = [...existing];
   for (const text of texts) {
     if (next.some((memory) => memory.text.toLowerCase() === text.toLowerCase())) continue;
-    next.push({ id: `memory-${Date.now()}-${next.length}`, text, importance: 0.8, createdAt: Date.now(), lastUsedAt: Date.now() });
+    const metadata = classifyMemory(text);
+    next.push({ id: `memory-${Date.now()}-${next.length}`, text, ...metadata, createdAt: Date.now(), lastUsedAt: Date.now() });
   }
+
   return next.slice(-100);
+}
+
+function classifyMemory(text: string): Pick<KeboMemory, 'type' | 'importance' | 'confidence' | 'source'> {
+  const lower = text.toLowerCase();
+  const type = /name is|called|lives in|has a|mentioned having/.test(lower)
+    ? 'user_fact'
+    : /likes|dislikes|favorite|enjoys/.test(lower)
+      ? 'preference'
+      : /working on|building|project|goal|intends|plan/.test(lower)
+        ? 'goal'
+        : /feeling|mood|sad|angry|tired|worried/.test(lower)
+          ? 'emotion'
+          : 'event';
+  const importance = type === 'user_fact' || type === 'goal' ? 0.95 : type === 'preference' ? 0.85 : 0.65;
+  return { type, importance, confidence: 0.9, source: 'user_message' };
 }
 
 export function retrieveMemories(memories: KeboMemory[], query: string): KeboMemory[] {

@@ -10,8 +10,9 @@ import {
 } from '../types/kebo';
 import { clamp, decayStats, deriveEmotion, detectMessageEmotion } from '../lib/keboEngine';
 import { mockAgentRespond, idleThought } from '../lib/mockAgent';
-import { analyzeKeboMessage, askKeboLLM, type KeboEmotionAnalysis } from '../lib/llmAgent';
+import { analyzeKeboMessage, askKeboLLM, type KeboEmotionAnalysis, type KeboReasoningPlan } from '../lib/llmAgent';
 import { addMemories, extractMemories, loadMemories, memoryContext, saveMemories, type KeboMemory } from '../lib/memory';
+import { clearRemoteMemories, loadRemoteMemories, saveRemoteMemories } from '../lib/supabaseMemory';
 
 const STORAGE_KEY = 'kebo-state-v1';
 const DECAY_TICK_MS = 15_000;
@@ -176,6 +177,7 @@ export function useKebo() {
   const stateRef = useRef(state);
   const messagesRef = useRef(messages);
   const memoriesRef = useRef(memories);
+  const remoteMemoriesLoaded = useRef(false);
 
   useEffect(() => {
     stateRef.current = state;
@@ -183,7 +185,28 @@ export function useKebo() {
     memoriesRef.current = memories;
   }, [state, messages, memories]);
 
-  useEffect(() => saveMemories(memories), [memories]);
+  useEffect(() => {
+    saveMemories(memories);
+    if (remoteMemoriesLoaded.current) {
+      void saveRemoteMemories(memories).catch((error) => console.warn('[Kebo] Remote memory save failed:', error));
+    }
+  }, [memories]);
+
+  useEffect(() => {
+    let active = true;
+    void loadRemoteMemories()
+      .then((remoteMemories) => {
+        if (!active || !remoteMemories) return;
+        remoteMemoriesLoaded.current = true;
+        setMemories(remoteMemories);
+        memoriesRef.current = remoteMemories;
+      })
+      .catch((error) => {
+        remoteMemoriesLoaded.current = true;
+        console.warn('[Kebo] Remote memory load failed; using local memory:', error);
+      });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     try {
@@ -225,8 +248,18 @@ export function useKebo() {
         const idle = prev.activity === 'idle';
         const quiet = Date.now() - prev.lastInteraction > IDLE_THOUGHT_MS;
         if (idle && quiet && prev.stats.energy > 15) {
-          const thought = idleThought(prev);
+          const rememberedName = memoriesRef.current.find((memory) => memory.text.toLowerCase().includes("user's name"));
+          const thought = rememberedName && prev.stats.bond > 35
+            ? {
+                text: `I was just thinking about you${rememberedName.text.match(/is ([^.]+)\./i)?.[1] ? `, ${rememberedName.text.match(/is ([^.]+)\./i)?.[1]}` : ''}. Everything feels very quiet on my side of the garden. 🌱`,
+                emotion: 'joy' as const,
+              }
+            : idleThought(prev);
           showThought(thought.text, 4000);
+          setMessages((messages) => [
+            ...messages,
+            { id: newId(), sender: 'kebo', text: thought.text, emotion: thought.emotion, createdAt: Date.now() },
+          ]);
           return { ...prev, lastInteraction: Date.now() };
         }
         return prev;
@@ -320,10 +353,11 @@ export function useKebo() {
           const relevantMemories = memoryContext(memoriesRef.current, trimmed);
 
           let reply: { text: string; emotion: KeboState['emotion'] };
+          let reasoningPlan: KeboReasoningPlan | undefined;
           let usedFallback = false;
 
           try {
-            const responseText = await askKeboLLM({
+            const response = await askKeboLLM({
               message: trimmed,
               keboState: updatedState,
               emotion: updatedState.emotion,
@@ -331,7 +365,13 @@ export function useKebo() {
               relevantMemories,
               signal: controller.signal,
             });
-            reply = { text: responseText, emotion: updatedState.emotion };
+            reply = { text: response.text, emotion: updatedState.emotion };
+            reasoningPlan = response.reasoningPlan;
+            if (reasoningPlan?.memoryToUse.length) {
+              const retrieved = new Set(relevantMemories);
+              const remembered = reasoningPlan.memoryToUse.find((memory) => retrieved.has(memory));
+              if (remembered) showThought(`Remembering: ${remembered}`, 3000);
+            }
           } catch (error) {
             if (isCancelled()) return;
             console.warn('[Kebo] LLM unavailable, using mock fallback:', error instanceof Error ? error.message : error);
@@ -360,7 +400,7 @@ export function useKebo() {
         })();
       }, THINK_DELAY_MS);
     },
-    [applyConversation, isThinking]
+    [applyConversation, isThinking, showThought]
   );
 
   useEffect(() => {
@@ -381,6 +421,7 @@ export function useKebo() {
     setMemories([]);
     memoriesRef.current = [];
     try { localStorage.removeItem('kebo-memories-v1'); } catch { /* ignore */ }
+    void clearRemoteMemories().catch((error) => console.warn('[Kebo] Remote memory clear failed:', error));
   }, []);
 
   return {

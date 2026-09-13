@@ -9,7 +9,7 @@ import {
   type VitalStats,
 } from '../types/kebo';
 import { clamp, decayStats, deriveEmotion, detectMessageEmotion } from '../lib/keboEngine';
-import { mockAgentRespond, idleThought } from '../lib/mockAgent';
+import { idleThought } from '../lib/mockAgent';
 import { analyzeKeboMessage, askKeboLLM, type KeboEmotionAnalysis, type KeboReasoningPlan } from '../lib/llmAgent';
 import { addMemories, extractMemories, loadMemories, memoryContext, saveMemories, type KeboMemory } from '../lib/memory';
 import { clearRemoteMemories, loadRemoteMemories, saveRemoteMemories } from '../lib/supabaseMemory';
@@ -354,7 +354,6 @@ export function useKebo() {
 
           let reply: { text: string; emotion: KeboState['emotion'] };
           let reasoningPlan: KeboReasoningPlan | undefined;
-          let usedFallback = false;
 
           try {
             const response = await askKeboLLM({
@@ -374,14 +373,16 @@ export function useKebo() {
             }
           } catch (error) {
             if (isCancelled()) return;
-            console.warn('[Kebo] LLM unavailable, using mock fallback:', error instanceof Error ? error.message : error);
-            usedFallback = true;
-            reply = mockAgentRespond(updatedState, trimmed);
+            console.error('[Kebo] LLM unavailable:', error instanceof Error ? error.message : error);
+            reply = {
+              text: "I’m having trouble reaching my language engine right now. Please try again in a moment. 🌱",
+              emotion: updatedState.emotion,
+            };
           }
 
           if (isCancelled()) return;
 
-          const finalEmotion = usedFallback ? reply.emotion : updatedState.emotion;
+          const finalEmotion = updatedState.emotion;
           setState((cur) => ({ ...cur, activity: 'talking', emotion: finalEmotion }));
           setMessages((msgs) => [
             ...msgs,

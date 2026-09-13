@@ -8,6 +8,11 @@ dotenv.config();
 
 const app = express();
 const port = Number(process.env.PORT || 3001);
+app.use(cors({
+  origin: ['https://vercel.app', 'http://localhost:5173'],
+  credentials: true
+}));
+app.use(express.json());
 const baseURL = process.env.OPENAI_BASE_URL || 'http://127.0.0.1:1234/v1';
 const model = process.env.OPENAI_MODEL || 'local-model';
 const apiKey = process.env.OPENAI_API_KEY || 'openai-compatible';

@@ -25,8 +25,8 @@ interface AskKeboArgs {
   signal?: AbortSignal;
 }
 
-const API_URL = 'https://onrender.com';
-const ANALYZE_URL = 'https://onrender.com';
+const API_URL = 'https://kebo-ai-project.onrender.com';
+const ANALYZE_URL = 'https://kebo-ai-project.onrender.com';
 
 
 export async function analyzeKeboMessage(message: string, currentEmotion: EmotionKey, signal?: AbortSignal): Promise<KeboEmotionAnalysis> {

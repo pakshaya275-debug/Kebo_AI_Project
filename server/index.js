@@ -8,9 +8,24 @@ dotenv.config();
 
 const app = express();
 const port = Number(process.env.PORT || 3001);
+const allowedOrigins = new Set(
+  [
+    'https://kebo-ai-project.vercel.app',
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+    ...(process.env.CLIENT_ORIGIN || '').split(',').map((origin) => origin.trim()).filter(Boolean),
+  ],
+);
+
 app.use(cors({
-  origin: ['https://vercel.app', 'http://localhost:5173'],
-  credentials: true
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.has(origin)) {
+      callback(null, true);
+      return;
+    }
+    callback(null, false);
+  },
+  credentials: true,
 }));
 app.use(express.json());
 const baseURL = process.env.OPENAI_BASE_URL || 'http://127.0.0.1:1234/v1';
@@ -121,7 +136,6 @@ Choose one intent and strategy. Use only the supplied memories. Never invent cur
   }
 }
 
-app.use(cors({ origin: process.env.CLIENT_ORIGIN || 'http://localhost:5173' }));
 app.use(express.json({ limit: '32kb' }));
 
 app.get('/api/health', (_req, res) => {

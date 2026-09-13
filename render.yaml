@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: kebo-api
+    runtime: node
+    buildCommand: npm ci
+    startCommand: npm run server
+    envVars:
+      - key: OPENAI_BASE_URL
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        sync: false
+      - key: TRANSCRIPTION_MODEL
+        value: whisper-large-v3-turbo
+      - key: CLIENT_ORIGIN
+        sync: false

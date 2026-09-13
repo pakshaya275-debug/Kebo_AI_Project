@@ -32,7 +32,9 @@ const configuredAnalyzeUrl = import.meta.env.VITE_KEBO_ANALYZE_URL;
 function resolveApiUrl(configured: string | undefined, path: string): string {
   if (!configured) return API_BASE_URL + path;
   const value = configured.replace(/\/$/, '');
-  return value === API_BASE_URL ? value + path : value;
+  if (value === API_BASE_URL) return value + path;
+  if (value.startsWith('/api/')) return API_BASE_URL + value;
+  return value;
 }
 
 const API_URL = resolveApiUrl(configuredChatUrl, '/api/kebo-chat');

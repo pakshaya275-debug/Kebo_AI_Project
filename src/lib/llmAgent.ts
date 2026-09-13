@@ -25,8 +25,18 @@ interface AskKeboArgs {
   signal?: AbortSignal;
 }
 
-const API_URL = 'https://kebo-ai-project.onrender.com';
-const ANALYZE_URL = 'https://kebo-ai-project.onrender.com';
+const API_BASE_URL = (import.meta.env.VITE_KEBO_API_BASE_URL || 'https://kebo-ai-project.onrender.com').replace(/\/$/, '');
+const configuredChatUrl = import.meta.env.VITE_KEBO_API_URL;
+const configuredAnalyzeUrl = import.meta.env.VITE_KEBO_ANALYZE_URL;
+
+function resolveApiUrl(configured: string | undefined, path: string): string {
+  if (!configured) return API_BASE_URL + path;
+  const value = configured.replace(/\/$/, '');
+  return value === API_BASE_URL ? value + path : value;
+}
+
+const API_URL = resolveApiUrl(configuredChatUrl, '/api/kebo-chat');
+const ANALYZE_URL = resolveApiUrl(configuredAnalyzeUrl, '/api/kebo-analyze');
 
 
 export async function analyzeKeboMessage(message: string, currentEmotion: EmotionKey, signal?: AbortSignal): Promise<KeboEmotionAnalysis> {

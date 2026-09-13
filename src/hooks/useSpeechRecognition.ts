@@ -11,7 +11,18 @@ export interface SpeechRecognitionControls {
   stopListening: () => void;
 }
 
-const TRANSCRIBE_URL = import.meta.env.VITE_KEBO_TRANSCRIBE_URL || '/api/transcribe';
+const API_BASE_URL = (import.meta.env.VITE_KEBO_API_BASE_URL || 'https://kebo-ai-project.onrender.com').replace(/\/$/, '');
+const configuredTranscribeUrl = import.meta.env.VITE_KEBO_TRANSCRIBE_URL;
+
+function resolveTranscribeUrl(): string {
+  if (!configuredTranscribeUrl) return API_BASE_URL + '/api/transcribe';
+  const value = configuredTranscribeUrl.replace(/\/$/, '');
+  if (value.startsWith('/api/')) return API_BASE_URL + value;
+  if (value === API_BASE_URL) return value + '/api/transcribe';
+  return value;
+}
+
+const TRANSCRIBE_URL = resolveTranscribeUrl();
 
 export function useSpeechRecognition(onFinalTranscript: (text: string) => void): SpeechRecognitionControls {
   const onFinalTranscriptRef = useRef(onFinalTranscript);

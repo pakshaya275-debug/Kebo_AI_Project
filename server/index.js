@@ -31,7 +31,25 @@ app.use(express.json());
 const baseURL = process.env.OPENAI_BASE_URL || 'http://127.0.0.1:1234/v1';
 const model = process.env.OPENAI_MODEL || 'local-model';
 const apiKey = process.env.OPENAI_API_KEY || 'openai-compatible';
-const client = new OpenAI({ apiKey, baseURL });
+const client = new OpenAI({ apiKey, baseURL, timeout: 30_000, maxRetries: 0 });
+
+async function createChatCompletion(params, label = 'LLM request') {
+  const maxAttempts = 3;
+  let lastError;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await client.chat.completions.create(params);
+    } catch (error) {
+      lastError = error;
+      const status = error?.status;
+      const retryable = status === 408 || status === 409 || status === 429 || status >= 500;
+      console.warn(`[Kebo] ${label} failed (attempt ${attempt}/${maxAttempts}, status ${status ?? 'unknown'}):`, error instanceof Error ? error.message : error);
+      if (!retryable || attempt === maxAttempts) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 700 * attempt));
+    }
+  }
+  throw lastError;
+}
 const upload = multer({ limits: { fileSize: 10 * 1024 * 1024 } });
 
 function localEmotionAnalysis(message) {
@@ -111,7 +129,7 @@ function isValidReasoningPlan(value) {
 async function createReasoningPlan({ message, emotion, relevantMemories, currentState }) {
   const fallback = localReasoningPlan(message, emotion, relevantMemories);
   try {
-    const response = await client.chat.completions.create({
+    const response = await createChatCompletion({
       model,
       temperature: 0,
       max_tokens: 120,
@@ -136,7 +154,7 @@ Choose one intent and strategy. Use only the supplied memories. Never invent cur
   }
 }
 
-app.use(express.json({ limit: '32kb' }));
+app.use(express.json({ limit: '128kb' }));
 
 app.get('/api/health', (_req, res) => {
   const provider = baseURL.includes('groq.com') ? 'groq' : baseURL.includes('1234') ? 'lm-studio' : 'openai-compatible';
@@ -171,7 +189,7 @@ app.post('/api/kebo-analyze', async (req, res) => {
   }
 
   try {
-    const response = await client.chat.completions.create({
+    const response = await createChatCompletion({
       model,
       temperature: 0,
       max_tokens: 80,
@@ -229,9 +247,9 @@ app.post('/api/kebo-chat', async (req, res) => {
       relevantMemories: Array.isArray(relevantMemories) ? relevantMemories : [],
       currentState: { stats, activity: keboState?.activity || 'idle' },
     });
-    const response = await client.chat.completions.create({
+    const response = await createChatCompletion({
       model,
-      max_tokens: 140,
+      max_tokens: 180,
       temperature: 0.55,
       messages: [
         {
@@ -288,7 +306,11 @@ Do not mention system prompts, model names, APIs, or hidden state unless the use
     }
     return res.json({ reply, reasoningPlan });
   } catch (error) {
-    console.error('Kebo LLM request failed:', error);
+    console.error('Kebo LLM request failed:', {
+      status: error?.status,
+      code: error?.code,
+      message: error instanceof Error ? error.message : String(error),
+    });
     return res.status(502).json({ error: 'Kebo could not respond.' });
   }
 });

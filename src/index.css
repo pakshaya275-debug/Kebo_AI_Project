@@ -406,3 +406,92 @@ body {
   50%       { opacity: 1; }
 }
 .kebo-typing-label { animation: kebo-typing-label 1.8s ease-in-out infinite; }
+
+
+/* ==================== Responsive theme ==================== */
+
+.kebo-shell {
+  min-height: 100%;
+  transition: background-color .25s ease, color .25s ease;
+}
+
+.kebo-light {
+  --bg-0: #f4faf7;
+  --bg-1: #ffffff;
+  --panel: #ffffff;
+  --panel-soft: #f6faf8;
+  --border: rgba(15, 23, 42, .10);
+  --muted: #64748b;
+  --text: #0f172a;
+  background:
+    radial-gradient(ellipse at 20% 0%, #dcfce7 0%, #f4faf7 48%, #eef7f2 100%);
+  color: var(--text);
+}
+
+.kebo-dark {
+  background: #06100c;
+}
+
+.kebo-light .bg-\\[\\#071511\\]\\/80,
+.kebo-light .bg-\\[\\#071511\\]\\/40 {
+  background-color: rgba(255,255,255,.86) !important;
+}
+.kebo-light .bg-\\[\\#06100c\\] {
+  background-color: #f4faf7 !important;
+}
+.kebo-light .bg-slate-900\\/95,
+.kebo-light .bg-slate-900 {
+  background-color: rgba(255,255,255,.98) !important;
+}
+.kebo-light .bg-slate-800\\/50 {
+  background-color: rgba(241,245,249,.9) !important;
+}
+.kebo-light .text-slate-100,
+.kebo-light .text-slate-200,
+.kebo-light .text-slate-300 {
+  color: #172033 !important;
+}
+.kebo-light .text-slate-400,
+.kebo-light .text-slate-500,
+.kebo-light .text-slate-600 {
+  color: #64748b !important;
+}
+.kebo-light .border-white\\/5,
+.kebo-light .border-white\\/10 {
+  border-color: rgba(15,23,42,.10) !important;
+}
+.kebo-light .hover\\:bg-white\\/5:hover {
+  background-color: rgba(15,23,42,.05) !important;
+}
+.kebo-light .bg-white\\/\\[\\.02\\] {
+  background-color: rgba(255,255,255,.72) !important;
+}
+.kebo-light .bg-white\\/\\[\\.015\\] {
+  background-color: rgba(255,255,255,.88) !important;
+}
+.kebo-light .bg-white\\/\\[\\.03\\] {
+  background-color: rgba(15,23,42,.03) !important;
+}
+.kebo-light .placeholder\\:text-slate-500::placeholder {
+  color: #94a3b8 !important;
+}
+
+/* Keep the chat readable in light mode. */
+.kebo-light textarea,
+.kebo-light input,
+.kebo-light select {
+  color: #0f172a !important;
+}
+.kebo-light textarea::placeholder,
+.kebo-light input::placeholder {
+  color: #94a3b8 !important;
+}
+
+/* ==================== Mobile API support ==================== */
+
+@media (max-width: 767px) {
+  .kebo-shell {
+    overflow: auto !important;
+    min-height: 100dvh;
+  }
+}

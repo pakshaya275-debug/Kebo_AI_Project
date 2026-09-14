@@ -97,7 +97,7 @@ function App() {
   }, [memories, memoryQuery]);
 
   return (
-    <div className="min-h-screen w-full bg-[#06100c] text-slate-100 flex overflow-hidden font-sans">
+    <div className={`kebo-shell min-h-screen w-full text-slate-100 flex overflow-hidden font-sans ${darkMode ? 'kebo-dark' : 'kebo-light'}`} data-theme={darkMode ? 'dark' : 'light'}>
       {/* ─── Left Sidebar ─── */}
       <aside className="hidden md:flex flex-col w-64 shrink-0 border-r border-white/5 bg-[#071511]/80 p-5 gap-6">
         {/* Brand */}

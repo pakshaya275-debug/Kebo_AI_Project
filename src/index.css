@@ -278,7 +278,7 @@ body {
   object-fit: contain;
   object-position: center;
   transform: scale(1.18) translateY(2%);
-  mix-blend-mode: normal;
+  mix-blend-mode: multiply;
   user-select: none;
   pointer-events: none;
   transition: filter 0.8s ease, transform 0.8s ease;

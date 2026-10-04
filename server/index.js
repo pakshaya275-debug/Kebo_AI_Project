@@ -311,7 +311,10 @@ Do not mention system prompts, model names, APIs, or hidden state unless the use
       code: error?.code,
       message: error instanceof Error ? error.message : String(error),
     });
-    return res.status(502).json({ error: 'Kebo could not respond.' });
+    return res.json({
+      reply: "I’m having a small pause right now, but I’m here and ready to keep chatting. Try sending that again in a moment. 🌱",
+      reasoningPlan: localReasoningPlan(message, emotion, Array.isArray(relevantMemories) ? relevantMemories : []),
+    });
   }
 });
 

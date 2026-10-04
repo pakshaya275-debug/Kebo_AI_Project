@@ -262,10 +262,10 @@ function DefaultChatLayout({
       </div>
 
       {/* Right Panel: Kebo + Stats */}
-      <div className="hidden lg:flex flex-col w-96 shrink-0 gap-5 overflow-y-auto custom-scroll min-h-0 h-[calc(100vh-8rem)] sticky top-6 pr-1">
+      <div className="hidden lg:flex flex-col w-96 shrink-0 gap-4 overflow-y-auto custom-scroll min-h-0 h-full max-h-full sticky top-0 pr-1">
         {/* Kebo Display */}
         <div
-          className="relative rounded-3xl border border-white/5 overflow-hidden flex items-center justify-center py-8 min-h-[320px] shrink-0"
+          className="relative rounded-3xl border border-white/5 overflow-hidden flex items-center justify-center py-4 min-h-[280px] shrink-0"
           style={{
             background: `radial-gradient(ellipse at 50% 60%, ${emotion.color}18 0%, transparent 65%), linear-gradient(180deg, #0a1812 0%, #06100c 100%)`,
           }}
@@ -302,14 +302,14 @@ function DefaultChatLayout({
               activity={state.activity}
               energy={state.stats.energy}
               vitals={state.stats}
-              size={260}
+              size={220}
             />
           </div>
         </div>
 
         {/* Current Emotion */}
-        <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-5 shrink-0">
-          <div className="flex items-center justify-between mb-3">
+        <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-4 shrink-0">
+          <div className="flex items-center justify-between mb-2">
             <h3 className="text-sm font-bold text-slate-100">Current Emotion</h3>
             <span
               className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold"
@@ -319,7 +319,7 @@ function DefaultChatLayout({
               <span>{emotion.emoji}</span>
             </span>
           </div>
-          <p className="text-sm text-slate-400 mb-4">{moodPhrase}</p>
+          <p className="text-sm text-slate-400 mb-3">{moodPhrase}</p>
           <div className="flex items-center gap-3">
             <div className="flex-1 h-2 rounded-full bg-white/5 overflow-hidden">
               <div
@@ -338,9 +338,9 @@ function DefaultChatLayout({
         </div>
 
         {/* Vitals */}
-        <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-5 shrink-0">
-          <h3 className="text-sm font-bold text-slate-100 mb-4">Vitals</h3>
-          <div className="space-y-3.5">
+        <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-4 shrink-0">
+          <h3 className="text-sm font-bold text-slate-100 mb-3">Vitals</h3>
+          <div className="space-y-3">
             <VitalBar label="Energy"      value={state.stats.energy}      color="#10b981" icon="⚡" />
             <VitalBar label="Happiness"   value={state.stats.happiness}   color="#f59e0b" icon="💚" />
             <VitalBar label="Bond"        value={state.stats.bond}        color="#ec4899" icon="👥" />

@@ -193,7 +193,7 @@ function App() {
         </header>
 
         {/* ─── Main Content Area (switches by nav) ─── */}
-        <div className="flex-1 flex min-h-0 p-4 sm:p-6 gap-6">
+        <div className="kebo-main-grid flex-1 flex min-h-0 p-4 sm:p-6 gap-6">
           {activeNav === 'memory' ? (
             <MemoryView
               memories={allMemoriesFiltered}
@@ -308,7 +308,7 @@ function DefaultChatLayout({
         </div>
 
         {/* Current Emotion */}
-        <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-5">
+        <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-5 shrink-0">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-bold text-slate-100">Current Emotion</h3>
             <span

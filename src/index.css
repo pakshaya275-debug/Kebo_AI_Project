@@ -445,6 +445,14 @@ body {
   transition: background-color .25s ease, color .25s ease;
 }
 
+.kebo-shell > div {
+  min-height: 0;
+}
+
+.kebo-shell .kebo-main-grid {
+  min-height: 0;
+}
+
 .kebo-light {
   --bg-0: #f4faf7;
   --bg-1: #ffffff;

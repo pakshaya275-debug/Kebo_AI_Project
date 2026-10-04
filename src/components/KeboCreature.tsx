@@ -115,6 +115,12 @@ export function KeboCreature({ emotion, activity, energy, vitals, size = 220 }: 
         alt=""
         className="kebo-model-image"
         draggable="false"
+        onError={(event) => {
+          const img = event.currentTarget;
+          if (img.dataset.fallbackApplied === '1') return;
+          img.dataset.fallbackApplied = '1';
+          img.src = '/kebo-model.png';
+        }}
       />
       {activity === 'thinking' && <div className="kebo-thought-3d"><i /><i /><i /></div>}
       {isTired && <div className="kebo-zzz-3d">z<span>z</span><b>z</b></div>}

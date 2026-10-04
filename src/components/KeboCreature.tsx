@@ -1,5 +1,15 @@
 import { EMOTIONS, type Activity, type EmotionKey, type VitalStats } from '../types/kebo';
 
+const EMOTION_ART: Record<string, string> = {
+  happy: '/emotions/happy.png',
+  sad: '/emotions/sad.png',
+  angry: '/emotions/angry.png',
+  surprised: '/emotions/surprised.png',
+  low_energy: '/emotions/low-energy.png',
+  curious: '/emotions/curious.png',
+  calm: '/emotions/happy.png',
+};
+
 interface KeboCreatureProps {
   emotion: EmotionKey;
   activity: Activity;
@@ -23,12 +33,17 @@ export function KeboCreature({ emotion, activity, energy, vitals, size = 220 }: 
   const isHappy = emotion === 'joy' || emotion === 'playful' || (emotion === 'calm' && happiness > 70);
   const isTired = emotion === 'tired' || energy < 25;
 
-  const healthClass = [
-    isAngry ? 'kebo-health-angry' : '',
-    isDry ? 'kebo-health-dry' : '',
-    isWithered ? 'kebo-health-withered' : '',
-    isRed ? 'kebo-health-red' : '',
-    isHappy ? 'kebo-health-vibrant' : '',
+  const imageKey = isAngry ? 'angry' : isSad ? 'sad' : isTired ? 'low_energy' : e.artKey;
+  const artSrc = EMOTION_ART[imageKey] ?? EMOTION_ART.calm;
+
+  const moodOverlayClass = [
+    isAngry ? 'kebo-mood-angry' : '',
+    isDry ? 'kebo-mood-dry' : '',
+    isWithered ? 'kebo-mood-withered' : '',
+    isRed ? 'kebo-mood-red' : '',
+    isHappy ? 'kebo-mood-vibrant' : '',
+    isSad ? 'kebo-mood-sad' : '',
+    isTired ? 'kebo-mood-tired' : '',
   ].filter(Boolean).join(' ');
 
   const bodyAnim =
@@ -51,7 +66,7 @@ export function KeboCreature({ emotion, activity, energy, vitals, size = 220 }: 
 
   return (
     <div
-      className={`kebo-creature kebo-image-model kebo-emotion-${emotion} ${bodyAnim} ${healthClass}`}
+      className={`kebo-creature kebo-image-model kebo-emotion-${emotion} ${bodyAnim} ${moodOverlayClass}`}
       style={{
         width: size,
         height: size,
@@ -62,7 +77,6 @@ export function KeboCreature({ emotion, activity, energy, vitals, size = 220 }: 
       role="img"
       aria-label={`Kebo feeling ${e.label}`}
     >
-      {/* Outer ambient glow (layered) */}
       <div
         className="kebo-glow-outer"
         style={{
@@ -78,7 +92,6 @@ export function KeboCreature({ emotion, activity, energy, vitals, size = 220 }: 
         }}
       />
 
-      {/* Dry / dust particles */}
       {isDry && (
         <div className="kebo-particles kebo-dry-particles">
           {Array.from({ length: 8 }).map((_, i) => (
@@ -87,12 +100,8 @@ export function KeboCreature({ emotion, activity, energy, vitals, size = 220 }: 
         </div>
       )}
 
-      {/* Angry / red aura veins */}
-      {isAngry && (
-        <div className="kebo-angry-aura" />
-      )}
+      {isAngry && <div className="kebo-angry-aura" />}
 
-      {/* Heart sparkles when happy */}
       {isHappy && happiness > 75 && (
         <div className="kebo-happy-sparkles">
           {Array.from({ length: 6 }).map((_, i) => (
@@ -102,7 +111,7 @@ export function KeboCreature({ emotion, activity, energy, vitals, size = 220 }: 
       )}
 
       <img
-        src="/kebo-model.png"
+        src={artSrc}
         alt=""
         className="kebo-model-image"
         draggable="false"

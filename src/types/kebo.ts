@@ -8,12 +8,19 @@ export type EmotionKey =
   | 'tired'
   | 'playful';
 
+export type EmotionVisualKey =
+  | EmotionKey
+  | 'surprised'
+  | 'low_energy'
+  | 'happy';
+
 export interface Emotion {
   key: EmotionKey;
   label: string;
   emoji: string;
   color: string;       // primary accent for this mood
   colorSoft: string;   // soft background tint
+  artKey: EmotionVisualKey;
 }
 
 export interface Personality {
@@ -61,14 +68,14 @@ export type Activity =
   | 'exploring';
 
 export const EMOTIONS: Record<EmotionKey, Emotion> = {
-  joy:      { key: 'joy',      label: 'Joyful',     emoji: '😊', color: '#f59e0b', colorSoft: '#fef3c7' },
-  calm:     { key: 'calm',     label: 'Calm',        emoji: '😌', color: '#14b8a6', colorSoft: '#ccfbf1' },
-  curious:  { key: 'curious',  label: 'Curious',     emoji: '🤔', color: '#3b82f6', colorSoft: '#dbeafe' },
-  sad:      { key: 'sad',      label: 'Sad',         emoji: '😢', color: '#64748b', colorSoft: '#e2e8f0' },
-  angry:    { key: 'angry',    label: 'Frustrated',  emoji: '😤', color: '#ef4444', colorSoft: '#fee2e2' },
-  anxious:  { key: 'anxious',  label: 'Anxious',     emoji: '😟', color: '#a855f7', colorSoft: '#f3e8ff' },
-  tired:    { key: 'tired',    label: 'Tired',       emoji: '😴', color: '#10b981', colorSoft: '#d1fae5' },
-  playful:  { key: 'playful',  label: 'Playful',     emoji: '😆', color: '#ec4899', colorSoft: '#fce7f3' },
+  joy:      { key: 'joy',      label: 'Joyful',     emoji: '😊', color: '#f59e0b', colorSoft: '#fef3c7', artKey: 'happy' },
+  calm:     { key: 'calm',     label: 'Calm',        emoji: '😌', color: '#14b8a6', colorSoft: '#ccfbf1', artKey: 'calm' },
+  curious:  { key: 'curious',  label: 'Curious',     emoji: '🤔', color: '#3b82f6', colorSoft: '#dbeafe', artKey: 'curious' },
+  sad:      { key: 'sad',      label: 'Sad',         emoji: '😢', color: '#64748b', colorSoft: '#e2e8f0', artKey: 'sad' },
+  angry:    { key: 'angry',    label: 'Frustrated',  emoji: '😤', color: '#ef4444', colorSoft: '#fee2e2', artKey: 'angry' },
+  anxious:  { key: 'anxious',  label: 'Anxious',     emoji: '😟', color: '#a855f7', colorSoft: '#f3e8ff', artKey: 'surprised' },
+  tired:    { key: 'tired',    label: 'Tired',       emoji: '😴', color: '#10b981', colorSoft: '#d1fae5', artKey: 'low_energy' },
+  playful:  { key: 'playful',  label: 'Playful',     emoji: '😆', color: '#ec4899', colorSoft: '#fce7f3', artKey: 'happy' },
 };
 
 export const DEFAULT_PERSONALITY: Personality = {

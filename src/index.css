@@ -284,6 +284,36 @@ body {
   transition: filter 0.8s ease, transform 0.8s ease;
   filter: drop-shadow(0 0 10px var(--kebo-glow, #34d399));
 }
+
+.kebo-emotion-joy .kebo-model-image { filter: saturate(1.18) brightness(1.06) drop-shadow(0 0 16px rgba(245, 158, 11, .42)); }
+.kebo-emotion-calm .kebo-model-image { filter: saturate(1.05) brightness(1.02) drop-shadow(0 0 14px rgba(20, 184, 166, .35)); }
+.kebo-emotion-curious .kebo-model-image { filter: saturate(1.1) brightness(1.04) drop-shadow(0 0 16px rgba(59, 130, 246, .4)); }
+.kebo-emotion-sad .kebo-model-image { filter: saturate(.6) brightness(.8) drop-shadow(0 0 10px rgba(100, 116, 139, .35)); }
+.kebo-emotion-angry .kebo-model-image { filter: saturate(1.35) brightness(1.02) drop-shadow(0 0 18px rgba(239, 68, 68, .52)); }
+.kebo-emotion-anxious .kebo-model-image { filter: saturate(.9) brightness(1.02) drop-shadow(0 0 14px rgba(168, 85, 247, .35)); }
+.kebo-emotion-tired .kebo-model-image { filter: saturate(.45) brightness(.72) drop-shadow(0 0 10px rgba(16, 185, 129, .22)); opacity: .95; }
+.kebo-emotion-playful .kebo-model-image { filter: saturate(1.22) brightness(1.06) drop-shadow(0 0 16px rgba(236, 72, 153, .36)); }
+
+.kebo-mood-sad .kebo-model-image,
+.kebo-mood-tired .kebo-model-image {
+  filter: grayscale(.08);
+}
+
+.kebo-mood-vibrant .kebo-model-image {
+  animation: kebo-image-pulse 2.8s ease-in-out infinite;
+}
+
+.kebo-mood-angry .kebo-model-image {
+  animation: kebo-image-alert .95s ease-in-out infinite;
+}
+
+.kebo-mood-dry .kebo-model-image {
+  filter: sepia(.2) saturate(.8) brightness(.9);
+}
+
+.kebo-mood-withered .kebo-model-image {
+  filter: grayscale(.3) brightness(.82) contrast(.95);
+}
 .kebo-image-model .kebo-thought-3d, .kebo-image-model .kebo-zzz-3d { z-index: 5; }
 
 /* Emotion-specific image overrides (additive with health classes) */
@@ -494,4 +524,20 @@ body {
     overflow: auto !important;
     min-height: 100dvh;
   }
+}
+
+/* Scroll helpers */
+.custom-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.45) transparent;
+}
+.custom-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.custom-scroll::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.28);
+  border-radius: 999px;
+}
+.custom-scroll::-webkit-scrollbar-track {
+  background: transparent;
 }

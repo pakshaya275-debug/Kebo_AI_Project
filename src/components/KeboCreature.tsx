@@ -33,7 +33,9 @@ export function KeboCreature({ emotion, activity, energy, vitals, size = 220 }: 
   const isHappy = emotion === 'joy' || emotion === 'playful' || (emotion === 'calm' && happiness > 70);
   const isTired = emotion === 'tired' || energy < 25;
 
-  const imageKey = isAngry ? 'angry' : isSad ? 'sad' : isTired ? 'low_energy' : e.artKey;
+  const imageKey = isAngry
+    ? 'angry'
+    : (annoyance > 85 ? 'angry' : e.artKey);
   const artSrc = EMOTION_ART[imageKey] ?? EMOTION_ART.calm;
 
   const moodOverlayClass = [

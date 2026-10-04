@@ -56,7 +56,7 @@ function loadState(): KeboState {
       return {
         ...parsed,
         stats: decayed,
-        emotion: deriveEmotion(decayed, parsed.personality),
+        emotion: parsed.emotion,
         activity: 'idle',
         lastInteraction: now,
       };
@@ -222,11 +222,12 @@ export function useKebo() {
         const now = Date.now();
         const elapsed = now - prev.lastInteraction;
         const stats = decayStats(prev.stats, elapsed);
-        const emotion = deriveEmotion(stats, prev.personality);
+        // Passive stat decay should not overwrite the mood chosen by the latest interaction.
+        // The next user message will recalculate the emotional response.
         return {
           ...prev,
           stats,
-          emotion,
+          emotion: prev.emotion,
           lastInteraction: now,
           activity: prev.activity === 'talking' || prev.activity === 'thinking' ? prev.activity : 'idle',
         };

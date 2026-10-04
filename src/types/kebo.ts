@@ -56,9 +56,6 @@ export interface KeboState {
   personality: Personality;
   activity: Activity;
   lastInteraction: number;
-  // Current emotion is persistent until a new interaction changes it.
-  // This prevents passive stat decay from immediately overriding the visible mood.
-  emotionPinned?: boolean;
 }
 
 export type Activity =

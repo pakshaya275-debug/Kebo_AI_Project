@@ -119,33 +119,35 @@ export function ChatPanel({ messages, isThinking, onSend }: ChatPanelProps) {
       </div>
 
       {/* Input area */}
-      <form
-        onSubmit={(e) => { e.preventDefault(); submit(); }}
-        className="mt-2 flex items-end gap-2 rounded-2xl bg-slate-800/70 px-3 py-2.5 border border-slate-700/60 focus-within:border-emerald-500/50 transition-colors"
-      >
-        <textarea
-          ref={textareaRef}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Message Kebo…"
-          rows={1}
-          className="flex-1 bg-transparent outline-none text-sm text-slate-100 placeholder:text-slate-500 resize-none leading-relaxed kebo-textarea"
-          style={{ maxHeight: '120px' }}
-          disabled={isThinking}
-        />
-        <button
-          type="submit"
-          disabled={!canSend}
-          className="shrink-0 grid place-items-center h-8 w-8 rounded-xl bg-emerald-500 text-white disabled:opacity-30 hover:bg-emerald-400 active:scale-95 transition-all mb-0.5"
-          aria-label="Send message"
+      <div className="sticky bottom-0 z-10 border-t border-white/5 bg-gradient-to-b from-transparent to-slate-950/60 pt-3 pb-4 px-2">
+        <form
+          onSubmit={(e) => { e.preventDefault(); submit(); }}
+          className="flex items-end gap-2 rounded-2xl bg-slate-800/70 px-3 py-2.5 border border-slate-700/60 focus-within:border-emerald-500/50 transition-colors"
         >
-          <Send size={14} />
-        </button>
-      </form>
-      <p className="text-center text-[10px] text-slate-700 mt-1.5">
-        Enter to send · Shift+Enter for new line
-      </p>
+          <textarea
+            ref={textareaRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Message Kebo…"
+            rows={1}
+            className="flex-1 bg-transparent outline-none text-sm text-slate-100 placeholder:text-slate-500 resize-none leading-relaxed kebo-textarea"
+            style={{ maxHeight: '120px' }}
+            disabled={isThinking}
+          />
+          <button
+            type="submit"
+            disabled={!canSend}
+            className="shrink-0 grid place-items-center h-8 w-8 rounded-xl bg-emerald-500 text-white disabled:opacity-30 hover:bg-emerald-400 active:scale-95 transition-all mb-0.5"
+            aria-label="Send message"
+          >
+            <Send size={14} />
+          </button>
+        </form>
+        <p className="text-center text-[10px] text-slate-700 mt-1.5">
+          Enter to send · Shift+Enter for new line
+        </p>
+      </div>
     </div>
   );
 }

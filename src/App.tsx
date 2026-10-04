@@ -257,15 +257,15 @@ function DefaultChatLayout({
   return (
     <>
       {/* Chat Column */}
-      <div className="flex-1 min-w-0 flex flex-col rounded-3xl border border-white/5 bg-white/[0.02] overflow-hidden">
+      <div className="flex-1 min-w-0 flex flex-col rounded-3xl border border-white/5 bg-white/[0.02] overflow-hidden min-h-0">
         <ChatMessages messages={messages} isThinking={isThinking} onSend={onSend} />
       </div>
 
       {/* Right Panel: Kebo + Stats */}
-      <div className="hidden lg:flex flex-col w-96 shrink-0 gap-5 overflow-y-auto">
+      <div className="hidden lg:flex flex-col w-96 shrink-0 gap-5 overflow-hidden min-h-0 h-[calc(100vh-8rem)] sticky top-6">
         {/* Kebo Display */}
         <div
-          className="relative rounded-3xl border border-white/5 overflow-hidden flex items-center justify-center py-8 min-h-[340px]"
+          className="relative rounded-3xl border border-white/5 overflow-hidden flex items-center justify-center py-8 min-h-[320px] shrink-0"
           style={{
             background: `radial-gradient(ellipse at 50% 60%, ${emotion.color}18 0%, transparent 65%), linear-gradient(180deg, #0a1812 0%, #06100c 100%)`,
           }}
@@ -338,7 +338,7 @@ function DefaultChatLayout({
         </div>
 
         {/* Vitals */}
-        <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-5">
+        <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-5 max-h-[210px] overflow-y-auto custom-scroll shrink-0">
           <h3 className="text-sm font-bold text-slate-100 mb-4">Vitals</h3>
           <div className="space-y-3.5">
             <VitalBar label="Energy"      value={state.stats.energy}      color="#10b981" icon="⚡" />
@@ -351,7 +351,7 @@ function DefaultChatLayout({
         </div>
 
         {/* Recent Memory */}
-        <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-5">
+        <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-5 max-h-[190px] overflow-y-auto custom-scroll shrink-0">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-bold text-slate-100">Recent Memory</h3>
             <span className="text-[10px] text-slate-500 tabular-nums">{memories.length} stored</span>

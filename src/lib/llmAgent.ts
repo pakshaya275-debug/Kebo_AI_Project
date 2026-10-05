@@ -66,23 +66,20 @@ export async function askKeboLLM({
   relevantMemories,
   signal,
 }: AskKeboArgs): Promise<{ text: string; reasoningPlan?: KeboReasoningPlan }> {
-  const response = await fetch(API_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      message,
-      keboState,
-      emotion,
-      recentConversation: recentConversation.slice(-10),
-      relevantMemories,
-    }),
-    signal,
-  });
-
-  const data = (await response.json()) as { reply?: string; reasoningPlan?: KeboReasoningPlan; error?: string };
-  if (!response.ok || typeof data.reply !== 'string' || !data.reply.trim()) {
-    throw new Error(data.error || 'Kebo backend failed.');
+  const payload = { message, keboState, emotion, recentConversation: recentConversation.slice(-10), relevantMemories };
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      const response = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal });
+      const data = (await response.json()) as { reply?: string; reasoningPlan?: KeboReasoningPlan; error?: string };
+      if (response.ok && typeof data.reply === 'string' && data.reply.trim()) return { text: data.reply.trim(), reasoningPlan: data.reasoningPlan };
+      lastError = new Error(data.error || `Kebo backend failed (HTTP ${response.status}).`);
+      if (response.status < 500 && response.status !== 429) break;
+    } catch (error) {
+      lastError = error;
+      if (signal?.aborted) throw error;
+    }
+    if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 900));
   }
-
-  return { text: data.reply.trim(), reasoningPlan: data.reasoningPlan };
+  throw lastError instanceof Error ? lastError : new Error('Kebo backend failed.');
 }

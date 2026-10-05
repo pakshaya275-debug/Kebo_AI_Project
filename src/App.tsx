@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { MessageCircle, Mic, Brain, BarChart3, Settings, Sun, Moon, ChevronDown, Send, Trash2, Clock, Star, ArrowRight, Volume2 } from 'lucide-react';
+import { MessageCircle, Mic, Brain, BarChart3, Settings, Sun, Moon, ChevronDown, Send, Trash2, Clock, Star, ArrowRight } from 'lucide-react';
 import { KeboCreature } from './components/KeboCreature';
 import { useKebo } from './hooks/useKebo';
 import { EMOTIONS, type Message } from './types/kebo';
@@ -44,7 +44,6 @@ function App() {
   const voiceBaselineMessageRef = useRef<string | null>(null);
   const spokenVoiceMessageRef = useRef<string | null>(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const [speechError, setSpeechError] = useState<string | null>(null);
   const handleVoiceTranscript = useCallback((transcript: string) => {
     voiceSessionRef.current = true;
     voiceBaselineMessageRef.current = messages[messages.length - 1]?.id || null;
@@ -52,57 +51,30 @@ function App() {
   }, [messages, sendMessage]);
   const voice = useSpeechRecognition(handleVoiceTranscript);
 
-  const speakText = useCallback((text: string) => {
-    if (!('speechSynthesis' in window)) {
-      setSpeechError('Speech output is not supported in this browser.');
-      return;
-    }
-    const synthesis = window.speechSynthesis;
-    const language = voice.language === 'auto' ? (navigator.language || 'en-US') : voice.language;
-    const speak = () => {
-      const voices = synthesis.getVoices();
-      const languagePrefix = language.toLowerCase().split('-')[0];
-      const selectedVoice =
-        voices.find((candidate) => candidate.lang.toLowerCase().startsWith(languagePrefix) && /female|child|samantha|zira|aria|jenny|google/i.test(candidate.name)) ||
-        voices.find((candidate) => candidate.lang.toLowerCase().startsWith(languagePrefix)) ||
-        voices[0] || null;
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = language;
-      utterance.voice = selectedVoice;
-      utterance.pitch = 1.12;
-      utterance.rate = 0.98;
-      utterance.volume = 1;
-      utterance.onstart = () => { setSpeechError(null); setIsSpeaking(true); };
-      utterance.onend = () => setIsSpeaking(false);
-      utterance.onerror = (event) => {
-        setIsSpeaking(false);
-        setSpeechError(event.error === 'not-allowed' ? 'Browser blocked automatic speech. Tap “Replay Kebo” to allow audio.' : 'Speech output failed (' + event.error + ').');
-      };
-      synthesis.cancel();
-      synthesis.resume();
-      synthesis.speak(utterance);
-    };
-    if (synthesis.getVoices().length === 0) {
-      const handleVoicesChanged = () => { synthesis.removeEventListener('voiceschanged', handleVoicesChanged); speak(); };
-      synthesis.addEventListener('voiceschanged', handleVoicesChanged);
-      window.setTimeout(() => { synthesis.removeEventListener('voiceschanged', handleVoicesChanged); if (synthesis.getVoices().length > 0) speak(); }, 500);
-    } else { speak(); }
-  }, [voice.language]);
-
   useEffect(() => {
     if (!voiceSessionRef.current) return;
     const latest = messages[messages.length - 1];
     if (!latest || latest.sender !== 'kebo' || latest.id === spokenVoiceMessageRef.current || latest.id === voiceBaselineMessageRef.current) return;
     spokenVoiceMessageRef.current = latest.id;
-    speakText(latest.text);
-  }, [messages, speakText]);
+    if (!('speechSynthesis' in window)) return;
+    const utterance = new SpeechSynthesisUtterance(latest.text);
+    const voices = window.speechSynthesis.getVoices();
+    utterance.lang = voice.language;
+    utterance.voice = voices.find((candidate) => candidate.lang.toLowerCase().startsWith(voice.language.toLowerCase().split('-')[0]) && /female|child|samantha|zira|aria|jenny|google/i.test(candidate.name))
+      || voices.find((candidate) => candidate.lang.toLowerCase().startsWith(voice.language.toLowerCase().split('-')[0]))
+      || null;
+    utterance.pitch = 1.5;
+    utterance.rate = 0.98;
+    utterance.volume = 0.9;
+    utterance.onstart = () => setIsSpeaking(true);
+    utterance.onend = () => setIsSpeaking(false);
+    utterance.onerror = () => setIsSpeaking(false);
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+  }, [messages, voice.language]);
 
   useEffect(() => () => window.speechSynthesis?.cancel(), []);
 
-  const replayLatestKebo = useCallback(() => {
-    const latest = [...messages].reverse().find((message) => message.sender === 'kebo');
-    if (latest) speakText(latest.text);
-  }, [messages, speakText]);
   const moodPhrase = MOOD_PHRASES[state.emotion] ?? 'Existing in the moment.';
 
   const navItems: { key: NavItem; label: string; icon: React.ReactNode }[] = [
@@ -1025,27 +997,15 @@ function VoiceChatView({ voice, messages, isThinking, isSpeaking, state }: { voi
         <p className="text-sm text-slate-400 leading-relaxed min-h-10">
           {voice.isListening ? voice.transcript || 'Listening...' : isThinking ? 'Kebo is thinking...' : isSpeaking ? latestReply?.text || 'Kebo is speaking...' : voice.transcript || latestReply?.text || 'Press the microphone and speak. Kebo will answer aloud.'}
         </p>
-        <div className="mt-6 flex items-center justify-center gap-3">
-          <button
-            type="button"
-            onClick={voice.isListening ? voice.stopListening : voice.startListening}
-            disabled={!voice.isSupported}
-            className={`inline-flex items-center gap-2 px-5 py-3 rounded-2xl text-sm font-semibold transition-all ${voice.isSupported ? 'bg-emerald-500 hover:bg-emerald-400 text-white' : 'bg-slate-700 text-slate-400 cursor-not-allowed'}`}
-          >
-            <Mic size={18} />
-            {voice.isListening ? 'Stop listening' : 'Start speaking'}
-          </button>
-          {latestReply && (
-            <button
-              type="button"
-              onClick={replayLatestKebo}
-              className="inline-flex items-center gap-2 px-4 py-3 rounded-2xl border border-white/10 bg-white/5 text-slate-200 hover:bg-white/10 transition-colors text-sm font-semibold"
-            >
-              <Volume2 size={18} />
-              Replay Kebo
-            </button>
-          )}
-        </div>
+        <button
+          type="button"
+          onClick={voice.isListening ? voice.stopListening : voice.startListening}
+          disabled={!voice.isSupported}
+          className={`mt-6 inline-flex items-center gap-2 px-5 py-3 rounded-2xl text-sm font-semibold transition-all ${voice.isSupported ? 'bg-emerald-500 hover:bg-emerald-400 text-white' : 'bg-slate-700 text-slate-400 cursor-not-allowed'}`}
+        >
+          <Mic size={18} />
+          {voice.isListening ? 'Stop listening' : 'Start speaking'}
+        </button>
         <label className="mt-4 flex items-center justify-center gap-2 text-xs text-slate-500">
           Language
           <select
@@ -1060,7 +1020,7 @@ function VoiceChatView({ voice, messages, isThinking, isSpeaking, state }: { voi
           </select>
         </label>
         <p className={`mt-4 text-xs ${voice.error ? 'text-rose-400' : 'text-slate-500'}`}>
-          {voice.error || speechError || (voice.isSupported ? 'Push to talk · Whisper transcription · Kebo replies aloud' : 'Audio recording is not supported in this browser. Use Chat instead.')}
+          {voice.error || (voice.isSupported ? 'Push to talk · Whisper transcription · Kebo replies aloud' : 'Audio recording is not supported in this browser. Use Chat instead.')}
         </p>
         <div className="mt-6 inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold">
           Whisper voice input · multilingual

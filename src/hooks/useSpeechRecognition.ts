@@ -35,6 +35,7 @@ export function useSpeechRecognition(onFinalTranscript: (text: string) => void):
   const [error, setError] = useState<string | null>(null);
   const [language, setLanguage] = useState(() => navigator.language || 'en-US');
   const nativeRecognitionRef = useRef<any>(null);
+  const transcriptSentRef = useRef(false);
 
   useEffect(() => {
     onFinalTranscriptRef.current = onFinalTranscript;
@@ -51,6 +52,7 @@ export function useSpeechRecognition(onFinalTranscript: (text: string) => void):
       try {
         setError(null);
         setTranscript('');
+        transcriptSentRef.current = false;
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         streamRef.current = stream;
         const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : '';
@@ -66,7 +68,7 @@ export function useSpeechRecognition(onFinalTranscript: (text: string) => void):
           recorderRef.current = null;
           streamRef.current = null;
           const audio = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' });
-          if (!audio.size) return;
+          if (!audio.size || transcriptSentRef.current) return;
 
           setTranscript('Transcribing...');
           try {
@@ -77,6 +79,7 @@ export function useSpeechRecognition(onFinalTranscript: (text: string) => void):
             const data = (await response.json()) as { text?: string; error?: string };
             if (!response.ok || !data.text?.trim()) throw new Error(data.error || 'No speech was detected.');
             setTranscript(data.text.trim());
+            transcriptSentRef.current = true;
             onFinalTranscriptRef.current(data.text.trim());
           } catch (transcriptionError) {
             const message = transcriptionError instanceof Error ? transcriptionError.message : 'Transcription failed.';
@@ -99,6 +102,7 @@ export function useSpeechRecognition(onFinalTranscript: (text: string) => void):
               const text = event.results?.[0]?.[0]?.transcript?.trim();
               if (text) {
                 setTranscript(text);
+                transcriptSentRef.current = true;
                 onFinalTranscriptRef.current(text);
                 recorderRef.current?.stop();
                 recognition.stop();

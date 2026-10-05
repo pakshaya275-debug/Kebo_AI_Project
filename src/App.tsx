@@ -44,7 +44,7 @@ function App() {
   const voiceBaselineMessageRef = useRef<string | null>(null);
   const spokenVoiceMessageRef = useRef<string | null>(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const [speechError, setSpeechError] = useState<string | null>(null);
+  const [voiceOutputError, setSpeechError] = useState<string | null>(null);
   const handleVoiceTranscript = useCallback((transcript: string) => {
     voiceSessionRef.current = true;
     voiceBaselineMessageRef.current = messages[messages.length - 1]?.id || null;
@@ -1060,7 +1060,7 @@ function VoiceChatView({ voice, messages, isThinking, isSpeaking, state }: { voi
           </select>
         </label>
         <p className={`mt-4 text-xs ${voice.error ? 'text-rose-400' : 'text-slate-500'}`}>
-          {voice.error || speechError || (voice.isSupported ? 'Push to talk · Whisper transcription · Kebo replies aloud' : 'Audio recording is not supported in this browser. Use Chat instead.')}
+          {voice.error || voiceOutputError || (voice.isSupported ? 'Push to talk · Whisper transcription · Kebo replies aloud' : 'Audio recording is not supported in this browser. Use Chat instead.')}
         </p>
         <div className="mt-6 inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold">
           Whisper voice input · multilingual

@@ -572,21 +572,6 @@ function ChatMessages({ messages, isThinking, onSend }: {
   );
 }
 
-function renderMessageText(text: string): React.ReactNode {
-  const lines = text.split(/\n/);
-  const renderInline = (value: string): React.ReactNode[] => {
-    const parts = value.split(/(\*\*.*?\*\*|__.*?__|\*.*?\*|`.*?`)/g).filter(Boolean);
-    return parts.map((part, index) => {
-      if ((part.startsWith('**') && part.endsWith('**')) || (part.startsWith('__') && part.endsWith('__'))) {
-        return <strong key={index} className="font-bold text-white">{part.slice(2, -2)}</strong>;
-      }
-      if (part.startsWith('*') && part.endsWith('*')) return <em key={index}>{part.slice(1, -1)}</em>;
-      if (part.startsWith('`') && part.endsWith('`')) return <code key={index} className="px-1 py-0.5 rounded bg-black/20 text-emerald-200">{part.slice(1, -1)}</code>;
-      return <span key={index}>{part}</span>;
-    });
-  };
-  return lines.map((line, index) => <React.Fragment key={index}>{index > 0 && <br />}{renderInline(line)}</React.Fragment>);
-}
 function ChatBubble({ msg, prevMsg }: { msg: Message; prevMsg?: Message }) {
   const isKebo = msg.sender === 'kebo';
   const e = EMOTIONS[msg.emotion];
@@ -637,7 +622,7 @@ function ChatBubble({ msg, prevMsg }: { msg: Message; prevMsg?: Message }) {
             border: `1px solid ${e.color}22`,
           }}
         >
-          <div className="text-slate-100">{renderMessageText(msg.text)}</div>
+          <p className="text-slate-100">{msg.text}</p>
         </div>
       </div>
     </div>

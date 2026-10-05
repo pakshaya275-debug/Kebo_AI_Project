@@ -34,6 +34,7 @@ export function useSpeechRecognition(onFinalTranscript: (text: string) => void):
   const [transcript, setTranscript] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [language, setLanguage] = useState(() => navigator.language || 'en-US');
+  const nativeRecognitionRef = useRef<any>(null);
 
   useEffect(() => {
     onFinalTranscriptRef.current = onFinalTranscript;
@@ -41,6 +42,7 @@ export function useSpeechRecognition(onFinalTranscript: (text: string) => void):
 
   const stopListening = useCallback(() => {
     recorderRef.current?.stop();
+    try { nativeRecognitionRef.current?.stop(); } catch { /* already stopped */ }
   }, []);
 
   const startListening = useCallback(() => {
@@ -65,6 +67,7 @@ export function useSpeechRecognition(onFinalTranscript: (text: string) => void):
           streamRef.current = null;
           const audio = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' });
           if (!audio.size) return;
+
           setTranscript('Transcribing...');
           try {
             const form = new FormData();
@@ -76,12 +79,42 @@ export function useSpeechRecognition(onFinalTranscript: (text: string) => void):
             setTranscript(data.text.trim());
             onFinalTranscriptRef.current(data.text.trim());
           } catch (transcriptionError) {
-            setError(transcriptionError instanceof Error ? transcriptionError.message : 'Transcription failed.');
+            const message = transcriptionError instanceof Error ? transcriptionError.message : 'Transcription failed.';
+            setError(message + ' Try Chrome voice recognition once more if Whisper is unavailable.');
             setTranscript('');
           }
         };
         recorder.start();
         recorderRef.current = recorder;
+
+        const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        if (SpeechRecognition) {
+          try {
+            const recognition = new SpeechRecognition();
+            nativeRecognitionRef.current = recognition;
+            recognition.lang = language === 'auto' ? (navigator.language || 'en-US') : language;
+            recognition.interimResults = false;
+            recognition.continuous = false;
+            recognition.onresult = (event: any) => {
+              const text = event.results?.[0]?.[0]?.transcript?.trim();
+              if (text) {
+                setTranscript(text);
+                onFinalTranscriptRef.current(text);
+                recorderRef.current?.stop();
+                recognition.stop();
+              }
+            };
+            recognition.onerror = () => {
+              // Whisper remains the primary transcription path.
+            };
+            recognition.onend = () => {
+              if (nativeRecognitionRef.current === recognition) nativeRecognitionRef.current = null;
+            };
+            recognition.start();
+          } catch {
+            nativeRecognitionRef.current = null;
+          }
+        }
       } catch (recordingError) {
         setError(recordingError instanceof DOMException && recordingError.name === 'NotAllowedError' ? 'Microphone permission was denied.' : 'Could not start microphone recording.');
       }
@@ -90,6 +123,7 @@ export function useSpeechRecognition(onFinalTranscript: (text: string) => void):
 
   useEffect(() => () => {
     recorderRef.current?.stop();
+    try { nativeRecognitionRef.current?.stop(); } catch { /* already stopped */ }
     streamRef.current?.getTracks().forEach((track) => track.stop());
   }, []);
 

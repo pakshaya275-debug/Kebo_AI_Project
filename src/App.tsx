@@ -97,7 +97,7 @@ function App() {
   }, [memories, memoryQuery]);
 
   return (
-    <div className={`kebo-shell min-h-screen w-full text-slate-100 flex overflow-hidden font-sans ${darkMode ? 'kebo-dark' : 'kebo-light'}`} data-theme={darkMode ? 'dark' : 'light'}>
+    <div className={`kebo-shell h-screen w-full text-slate-100 flex overflow-hidden font-sans ${darkMode ? 'kebo-dark' : 'kebo-light'}`} data-theme={darkMode ? 'dark' : 'light'}>
       {/* ─── Left Sidebar ─── */}
       <aside className="hidden md:flex flex-col w-64 shrink-0 border-r border-white/5 bg-[#071511]/80 p-5 gap-6">
         {/* Brand */}
@@ -153,7 +153,7 @@ function App() {
       {/* ─── Main Content ─── */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* ─── Top Bar ─── */}
-        <header className="flex items-center justify-between px-6 py-4 border-b border-white/5 bg-[#071511]/40 backdrop-blur-sm">
+        <header className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-white/5 bg-[#071511]/40 backdrop-blur-sm">
           <h2 className="text-xl font-bold text-slate-100">Chat with Kebo</h2>
           <div className="flex items-center gap-3">
             <button
@@ -193,7 +193,7 @@ function App() {
         </header>
 
         {/* ─── Main Content Area (switches by nav) ─── */}
-        <div className="kebo-main-grid flex-1 flex min-h-0 p-4 sm:p-6 gap-6">
+        <div className="kebo-main-grid flex-1 flex min-h-0 overflow-hidden p-4 sm:p-6 gap-6">
           {activeNav === 'memory' ? (
             <MemoryView
               memories={allMemoriesFiltered}
@@ -262,7 +262,7 @@ function DefaultChatLayout({
       </div>
 
       {/* Right Panel: Kebo + Stats */}
-      <div className="hidden lg:flex flex-col w-96 shrink-0 gap-4 overflow-y-auto custom-scroll min-h-0 h-full max-h-full sticky top-0 pr-1">
+      <div className="hidden lg:flex flex-col w-96 shrink-0 gap-4 overflow-y-auto custom-scroll min-h-0 h-full max-h-full pr-1">
         {/* Kebo Display */}
         <div
           className="relative rounded-3xl border border-white/5 overflow-hidden flex items-center justify-center py-4 min-h-[280px] shrink-0"

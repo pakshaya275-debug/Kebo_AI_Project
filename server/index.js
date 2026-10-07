@@ -56,26 +56,49 @@ async function createChatCompletion(params, label = 'LLM request') {
 const upload = multer({ limits: { fileSize: 10 * 1024 * 1024 } });
 
 function localEmotionAnalysis(message) {
-  const text = message.toLowerCase();
+  const text = message.toLowerCase().replace(/[’]/g, "'");
+  const mentionsKebo = /\b(kebo|you)\b/.test(text);
+  const selfDirected = /\b(myself|my life|my fault|i failed|i can't|i cannot|me)\b/.test(text);
+
   if (/\b(don't|dont|do not|never)\s+(hate|dislike)\s+(you|kebo)\b/.test(text)) {
     return { emotion: 'calm', intensity: 0.2, target: 'kebo', reason: 'The message explicitly negates anger toward Kebo.' };
   }
+
+  if (/\b(hate|don't like|dont like|do not like|stupid|useless|idiot|shut up|annoying)\s+(you|kebo)\b/.test(text)) {
+    return { emotion: 'angry', intensity: 0.9, target: 'kebo', reason: 'The negative language is directly aimed at Kebo.' };
+  }
+
+  if (/\b(i am|i'm|im|i feel|feeling)\b.*\b(angry|mad|furious|frustrated|upset|hate)\b.*\b(myself|me|my life|my work|my marks|my exam|my project)\b/.test(text)
+    || /\b(angry|mad|furious|frustrated)\b.*\b(with|at|on)\s+(myself|me)\b/.test(text)) {
+    return { emotion: 'sad', intensity: 0.9, target: 'self', reason: 'The user is expressing strong frustration toward themselves or their situation.' };
+  }
+
+  if (/\b(scared|afraid|fear|terrified|nervous|worried|anxious|stress|stressed|overwhelmed|exhausted|tired|lonely|sad|unhappy|upset|crying|don't like my life|dont like my life)\b/.test(text)) {
+    return {
+      emotion: 'sad',
+      intensity: 0.85,
+      target: selfDirected ? 'self' : 'outside',
+      reason: 'The message contains an explicit distress signal.'
+    };
+  }
+
+  if (/\b(angry|mad|furious|frustrated)\b/.test(text)) {
+    return {
+      emotion: 'sad',
+      intensity: 0.8,
+      target: mentionsKebo ? 'kebo' : 'outside',
+      reason: 'The message contains strong frustration; target is inferred from context.'
+    };
+  }
+
   if (/\b(are you|how are|what can|do you|can you|why|how|what|when|where)\b/.test(text) || text.trim().endsWith('?')) {
     return { emotion: 'curious', intensity: 0.45, target: 'unclear', reason: 'The user is asking a question.' };
   }
-  if (/\b(i am|i'm|im|i feel|feeling)\b.*\b(sad|worried|anxious|lonely|tired|exhausted|overwhelmed|upset|stressed)\b/.test(text)) {
-    return { emotion: 'sad', intensity: 0.75, target: 'self', reason: 'The user describes a difficult emotional state.' };
+
+  if (/\b(happy|excited|love|amazing|awesome|great|good|thanks|thank you|relieved|proud)\b/.test(text)) {
+    return { emotion: 'joy', intensity: 0.75, target: 'unclear', reason: 'The message contains a positive emotional signal.' };
   }
-  if (/\b(hate|don't like|dont like|do not like|frustrated|exhausted|stuck|difficult)\b/.test(text)
-    && !/\b(hate|don't like|dont like|do not like)\s+(you|kebo)\b/.test(text)) {
-    return { emotion: 'sad', intensity: 0.65, target: 'outside', reason: 'The negativity is about an outside situation, not Kebo.' };
-  }
-  if (/\b(hate|don't like|dont like|do not like|stupid|useless|idiot|shut up)\s+(you|kebo)\b/.test(text)) {
-    return { emotion: 'angry', intensity: 0.8, target: 'kebo', reason: 'The negative language is directed at Kebo.' };
-  }
-  if (/\b(sorry|apologize|apology|forgive|amazing|awesome|great|good|love|thanks|thank you)\b/.test(text)) {
-    return { emotion: 'joy', intensity: 0.6, target: 'kebo', reason: 'The message contains warmth, praise, or repair.' };
-  }
+
   return { emotion: 'calm', intensity: 0.2, target: 'unclear', reason: 'No strong emotional signal was found.' };
 }
 
@@ -190,6 +213,14 @@ app.post('/api/kebo-analyze', async (req, res) => {
     return res.status(400).json({ error: 'A message is required.' });
   }
 
+  const localSignal = localEmotionAnalysis(message);
+
+  // Strong, explicit emotional phrases use the deterministic classifier first.
+  // This prevents the LLM classifier from turning clear distress into playfulness.
+  if (localSignal.intensity >= 0.8) {
+    return res.json(localSignal);
+  }
+
   try {
     const response = await createChatCompletion({
       model,
@@ -220,7 +251,7 @@ Negated statements such as "I don't hate Kebo" are not angry. Use intensity betw
     return res.json({ emotion, intensity, target: parsed.target || 'unclear', reason: String(parsed.reason || '') });
   } catch (error) {
     console.warn('Using local emotion analysis fallback:', error.message);
-    return res.json(localEmotionAnalysis(message));
+    return res.json(localSignal);
   }
 });
 

@@ -19,7 +19,10 @@ const allowedOrigins = new Set(
 
 app.use(cors({
   origin(origin, callback) {
-    if (!origin || allowedOrigins.has(origin)) {
+    const isVercelPreview = typeof origin === 'string'
+      && origin.startsWith('https://')
+      && origin.endsWith('.vercel.app');
+    if (!origin || allowedOrigins.has(origin) || isVercelPreview) {
       callback(null, true);
       return;
     }
@@ -27,7 +30,7 @@ app.use(cors({
   },
   credentials: true,
 }));
-app.use(express.json());
+app.use(express.json({ limit: '128kb' }));
 const baseURL = process.env.OPENAI_BASE_URL || 'http://127.0.0.1:1234/v1';
 const model = process.env.OPENAI_MODEL || 'local-model';
 const apiKey = process.env.OPENAI_API_KEY || 'openai-compatible';
@@ -154,7 +157,6 @@ Choose one intent and strategy. Use only the supplied memories. Never invent cur
   }
 }
 
-app.use(express.json({ limit: '128kb' }));
 
 app.get('/api/health', (_req, res) => {
   const provider = baseURL.includes('groq.com') ? 'groq' : baseURL.includes('1234') ? 'lm-studio' : 'openai-compatible';

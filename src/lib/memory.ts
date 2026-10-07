@@ -53,8 +53,8 @@ export function extractMemories(text: string): string[] {
   const patterns: { re: RegExp; format: (groups: RegExpMatchArray) => string | null }[] = [
     { re: /\bmy name is ([a-z][a-z .\-_']{1,40})/i, format: (m) => `The user's name is ${m[1]?.trim()}.` },
     { re: /\bcall me ([a-z][a-z .\-_']{1,40})/i, format: (m) => `The user wants to be called ${m[1]?.trim()}.` },
-    { re: /\bI(?:'m| am)\s+([A-Z][a-z .\-_']{1,40})[.!?]?$/, format: (m) => `The user's name is ${m[1]?.trim()}.` },
-    { re: /\bi(?:'m| am) (?:working on|building|making|creating|developing|doing|studying|preparing for) ([^.?!]{3,120})/i,
+    { re: /\bI(?:['’]m| am)\s+([A-Z][a-z .\-_']{1,40})[.!?]?$/, format: (m) => `The user's name is ${m[1]?.trim()}.` },
+    { re: /\bi(?:['’]m| am) (?:working on|building|making|creating|developing|doing|studying|preparing for) ([^.?!]{3,120})/i,
       format: (m) => `The user is working on / building: ${m[1]?.trim()}.` },
     { re: /\bi (?:like|love|enjoy|adore|really like) ([^.?!]{3,120})/i,
       format: (m) => `The user likes ${m[1]?.trim()}.` },
@@ -72,7 +72,7 @@ export function extractMemories(text: string): string[] {
       format: (m) => normalized.length < 180 ? `The user intends to ${m[1]?.trim()}.` : null },
     { re: /\bthank(s| you) (?:so much|a lot)?[\s!.,]*(?:for ([^.?!]{3,120}))?/i,
       format: (m) => m[2] ? `The user thanked Kebo for ${m[2]?.trim()}.` : 'The user thanked Kebo warmly.' },
-    { re: /\bi(?:'m| am) (?:sorry|apologizing|so sorry|really sorry)(?: to you)?[\s!.,]*(?:for ([^.?!]{3,120}))?/i,
+    { re: /\bi(?:['’]m| am) (?:sorry|apologizing|so sorry|really sorry)(?: to you)?[\s!.,]*(?:for ([^.?!]{3,120}))?/i,
       format: (m) => m[1] ? `The user apologized to Kebo for ${m[1]?.trim()}.` : 'The user apologized to Kebo.' },
   ];
 
@@ -86,14 +86,9 @@ export function extractMemories(text: string): string[] {
 
   if (memories.length === 0) {
     if (len >= 20 && len <= 200) {
-      const questionMark = /\?$/.test(normalized);
-      const questionWords = /^ (why|how|what|when|where|who|is|do|does|can|could|would|should)\b/i;
-      const looksLikeQuestion = questionMark || questionWords.test(normalized);
-      if (looksLikeQuestion) {
-        memories.push(`The user asked: ${normalized}`);
-      } else if (/(amazing|awesome|great|love you|proud|brilliant|wonderful|fantastic|thanks|thank you)/i.test(normalized)) {
+      if (/(amazing|awesome|great|love you|proud|brilliant|wonderful|fantastic|thanks|thank you)/i.test(normalized)) {
         memories.push(`The user said something kind to Kebo: ${normalized.slice(0, 160)}.`);
-      } else if (/(?:'m| am) (?:angry|mad|upset|annoyed|disappointed)/i.test(normalized)) {
+      } else if (/(?:'m|’m| am) (?:angry|mad|upset|annoyed|disappointed|stressed|overwhelmed)/i.test(normalized)) {
         memories.push(`The user shared a difficult feeling: ${normalized.slice(0, 160)}.`);
       }
     }

@@ -27,16 +27,16 @@ export function KeboCreature({ emotion, activity, energy, vitals, size = 220 }: 
 
   const isDry = hunger < 25;
   const isWithered = happiness < 30;
-  const isRed = annoyance > 35;
-  const isAngry = emotion === 'angry' || annoyance > 50;
+  const isAngry = emotion === 'angry';
   const isSad = emotion === 'sad' || isWithered;
-  const isHappy = emotion === 'joy' || emotion === 'playful' || (emotion === 'calm' && happiness > 70);
-  const isTired = emotion === 'tired' || energy < 25;
+  const isHappy = emotion === 'joy' || emotion === 'playful';
+  const isTired = emotion === 'tired' || energy < 18;
+  const isRed = isAngry || annoyance > 65;
 
-  const imageKey = isAngry
-    ? 'angry'
-    : (annoyance > 85 ? 'angry' : e.artKey);
-  const artSrc = EMOTION_ART[imageKey] ?? EMOTION_ART.calm;
+  // Emotion is the single source of truth for the main artwork. Vitals can
+  // add visual modifiers, but they must not silently replace the emotion art.
+  const imageKey = e.artKey;
+  const artSrc = EMOTION_ART[imageKey] ?? EMOTION_ART.happy;
 
   const moodOverlayClass = [
     isAngry ? 'kebo-mood-angry' : '',
@@ -63,7 +63,7 @@ export function KeboCreature({ emotion, activity, energy, vitals, size = 220 }: 
                 ? 'kebo-breathe-happy'
                 : 'kebo-breathe';
 
-  const glowIntensity = isHappy ? 1 : isAngry ? 0.9 : isSad ? 0.3 : 0.6;
+  const glowIntensity = isAngry ? 0.9 : isHappy ? 1 : isSad ? 0.3 : isTired ? 0.35 : 0.6;
   const glowColor = isAngry ? '#ef4444' : isDry ? '#f59e0b' : isSad ? '#64748b' : e.color;
 
   return (

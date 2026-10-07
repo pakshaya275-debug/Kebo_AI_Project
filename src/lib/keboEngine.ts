@@ -98,89 +98,99 @@ export function deriveEmotion(
   stats: VitalStats,
   personality: KeboState['personality']
 ): EmotionKey {
-  const openness = personality.openness * 40;
-  const extraversion = personality.extraversion * 30;
-  const neuroticism = personality.neuroticism * 35;
-  const agreeableness = personality.agreeableness * 30;
+  // Personality adjusts how strongly Kebo expresses a state, but vitals remain
+  // the primary source of the dominant emotion.
+  const openness = personality.openness * 12;
+  const extraversion = personality.extraversion * 10;
+  const neuroticism = personality.neuroticism * 14;
+  const agreeableness = personality.agreeableness * 10;
 
   const scores: EmotionScore[] = [
     {
-      key: 'joy',
-      score:
-        stats.happiness * 0.7
-        + stats.bond * 0.28
-        + stats.energy * 0.12
-        + extraversion * 0.3
-        - stats.annoyance * 0.35,
-    },
-    {
-      key: 'playful',
-      score:
-        stats.energy * 0.45
-        + stats.happiness * 0.3
-        + stats.stimulation * 0.3
-        + extraversion * 0.4
-        - stats.annoyance * 0.3,
-    },
-    {
-      key: 'curious',
-      score:
-        stats.stimulation * 0.55
-        + openness * 0.6
-        + stats.energy * 0.15
-        - (100 - stats.annoyance) * 0.05,
-    },
-    {
-      key: 'calm',
-      score:
-        (stats.energy > 35 && stats.energy < 80 ? 55 : Math.min(stats.energy, 100 - stats.energy) * 1.1)
-        + (100 - personality.neuroticism) * 30
-        + (100 - stats.annoyance) * 0.2
-        + agreeableness * 0.3,
-    },
-    {
       key: 'tired',
       score:
-        (100 - stats.energy) * 1.05
-        + (stats.hunger < 25 ? 20 : 0)
-        - stats.stimulation * 0.15,
-    },
-    {
-      key: 'sad',
-      score:
-        (100 - stats.happiness) * 0.62
-        + (100 - stats.bond) * 0.22
-        + (stats.hunger < 20 ? 18 : 0)
-        + neuroticism * 0.3,
-    },
-    {
-      key: 'anxious',
-      score:
-        (100 - stats.stimulation) * 0.38
-        + neuroticism * 0.55
-        + (stats.hunger < 30 ? 10 : 0)
-        - agreeableness * 0.15,
+        (100 - stats.energy) * 1.35
+        + (stats.hunger < 25 ? 12 : 0)
+        - stats.stimulation * 0.18,
     },
     {
       key: 'angry',
       score:
-        stats.annoyance * 1.05
-        + (100 - stats.happiness) * 0.25
-        + neuroticism * 0.25
-        - agreeableness * 0.4,
+        stats.annoyance * 1.25
+        + (100 - stats.happiness) * 0.18
+        + neuroticism
+        - agreeableness * 0.45,
+    },
+    {
+      key: 'sad',
+      score:
+        (100 - stats.happiness) * 0.9
+        + (100 - stats.bond) * 0.12
+        + (stats.hunger < 20 ? 12 : 0)
+        + neuroticism * 0.45,
+    },
+    {
+      key: 'anxious',
+      score:
+        stats.stimulation * 0.48
+        + (100 - stats.happiness) * 0.45
+        + neuroticism * 0.8
+        - stats.annoyance * 0.12,
+    },
+    {
+      key: 'curious',
+      score:
+        stats.stimulation * 0.72
+        + stats.energy * 0.16
+        + openness
+        - stats.annoyance * 0.3,
+    },
+    {
+      key: 'playful',
+      score:
+        stats.happiness * 0.5
+        + stats.energy * 0.55
+        + stats.stimulation * 0.3
+        + extraversion
+        - stats.annoyance * 0.45,
+    },
+    {
+      key: 'joy',
+      score:
+        stats.happiness * 0.78
+        + stats.bond * 0.2
+        + stats.energy * 0.2
+        + extraversion
+        - stats.annoyance * 0.55,
+    },
+    {
+      key: 'calm',
+      score:
+        58
+        + (100 - stats.annoyance) * 0.18
+        + stats.happiness * 0.12
+        + stats.bond * 0.08
+        + (100 - stats.stimulation) * 0.12
+        + agreeableness * 0.2
+        - neuroticism * 0.25,
     },
   ];
 
   scores.sort((a, b) => b.score - a.score);
   const [top, second] = scores;
-  const tie = top.score - second.score < 3;
 
+  // Hard state boundaries prevent a cheerful expression from surviving when
+  // Kebo is genuinely exhausted, highly annoyed, or very unhappy.
+  if (stats.energy <= 18) return 'tired';
+  if (stats.annoyance >= 78) return 'angry';
+  if (stats.happiness <= 22) return 'sad';
+
+  const tie = top.score - second.score < 4;
   if (tie) {
-    if (top.key === 'angry' && second.key === 'sad') return 'sad';
-    if (top.key === 'angry' && second.key === 'anxious') return 'anxious';
-    if (top.key === 'joy' && second.key === 'playful') return stats.energy > 60 ? 'playful' : 'joy';
-    if (top.key === 'curious' && second.key === 'calm') return stats.stimulation > 65 ? 'curious' : 'calm';
+    if (top.key === 'joy' && second.key === 'playful') return stats.energy >= 55 ? 'playful' : 'joy';
+    if (top.key === 'curious' && second.key === 'calm') return stats.stimulation >= 62 ? 'curious' : 'calm';
     if (top.key === 'tired' && (second.key === 'sad' || second.key === 'calm')) return 'tired';
+    if (top.key === 'angry' && second.key === 'sad') return stats.annoyance >= 45 ? 'angry' : 'sad';
   }
 
   return top.key;

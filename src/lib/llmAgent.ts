@@ -29,6 +29,16 @@ const API_BASE_URL = (import.meta.env.VITE_KEBO_API_BASE_URL || 'https://kebo-ai
 const configuredChatUrl = import.meta.env.VITE_KEBO_API_URL;
 const configuredAnalyzeUrl = import.meta.env.VITE_KEBO_ANALYZE_URL;
 
+async function readJsonResponse(response: Response): Promise<Record<string, unknown>> {
+  const raw = await response.text();
+  if (!raw.trim()) throw new Error(`Kebo backend returned an empty response (HTTP ${response.status}).`);
+  try {
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    throw new Error(`Kebo backend returned invalid JSON (HTTP ${response.status}).`);
+  }
+}
+
 function resolveApiUrl(configured: string | undefined, path: string): string {
   if (!configured) return API_BASE_URL + path;
   const value = configured.replace(/\/$/, '');
@@ -48,7 +58,7 @@ export async function analyzeKeboMessage(message: string, currentEmotion: Emotio
     body: JSON.stringify({ message, currentEmotion }),
     signal,
   });
-  const data = (await response.json()) as Partial<KeboEmotionAnalysis> & { error?: string };
+  const data = await readJsonResponse(response) as Partial<KeboEmotionAnalysis> & { error?: string };
   if (!response.ok || typeof data.emotion !== 'string') throw new Error(data.error || 'Emotion analysis failed.');
   return {
     emotion: data.emotion as EmotionKey,
@@ -79,7 +89,7 @@ export async function askKeboLLM({
     signal,
   });
 
-  const data = (await response.json()) as { reply?: string; reasoningPlan?: KeboReasoningPlan; error?: string };
+  const data = await readJsonResponse(response) as { reply?: string; reasoningPlan?: KeboReasoningPlan; error?: string };
   if (!response.ok || typeof data.reply !== 'string' || !data.reply.trim()) {
     throw new Error(data.error || 'Kebo backend failed.');
   }

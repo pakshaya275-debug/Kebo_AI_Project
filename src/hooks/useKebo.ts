@@ -105,18 +105,21 @@ export function computeConversationImpact(
     case 'joy':
       stats.happiness = clamp(stats.happiness + 10 * intensityFactor);
       stats.bond = clamp(stats.bond + 4 * intensityFactor);
+      stats.energy = clamp(stats.energy + 2 * intensityFactor);
       stats.annoyance = clamp(stats.annoyance - 25 * intensityFactor);
       stats.hunger = clamp(stats.hunger + 2 * intensityFactor);
       break;
     case 'angry':
       stats.happiness = clamp(stats.happiness - (annoyKebo ? 12 : 5) * intensityFactor);
       stats.bond = clamp(stats.bond - (annoyKebo ? 5 : 1.5) * intensityFactor);
+      stats.energy = clamp(stats.energy - 3 * intensityFactor);
       if (annoyKebo) stats.annoyance = clamp(stats.annoyance + 24 * intensityFactor);
       else stats.happiness = clamp(stats.happiness - 2 * intensityFactor);
       break;
     case 'sad':
       stats.happiness = clamp(stats.happiness - 4 * intensityFactor);
       stats.stimulation = clamp(stats.stimulation + 2 * intensityFactor);
+      stats.energy = clamp(stats.energy - 1 * intensityFactor);
       stats.bond = clamp(stats.bond + 3 * intensityFactor);
       stats.annoyance = clamp(stats.annoyance - 5 * intensityFactor);
       break;
@@ -131,32 +134,40 @@ export function computeConversationImpact(
       stats.stimulation = clamp(stats.stimulation + 9 * intensityFactor);
       stats.bond = clamp(stats.bond + 2 * intensityFactor);
       stats.happiness = clamp(stats.happiness + 3 * intensityFactor);
+      stats.energy = clamp(stats.energy + 1 * intensityFactor);
       stats.annoyance = clamp(stats.annoyance - 10 * intensityFactor);
       break;
     case 'anxious':
       stats.happiness = clamp(stats.happiness - 2 * intensityFactor);
       stats.bond = clamp(stats.bond + 1 * intensityFactor);
+      stats.energy = clamp(stats.energy - 2 * intensityFactor);
       stats.annoyance = clamp(stats.annoyance - 5 * intensityFactor);
       break;
     case 'tired':
-      stats.happiness = clamp(stats.happiness + 1);
-      stats.energy = clamp(stats.energy + 2 * intensityFactor);
+      stats.happiness = clamp(stats.happiness - 1 * intensityFactor);
+      stats.energy = clamp(stats.energy - 2 * intensityFactor);
       break;
     case 'calm':
     default:
       stats.happiness = clamp(stats.happiness + 2 * intensityFactor);
       stats.bond = clamp(stats.bond + 1 * intensityFactor);
+      stats.energy = clamp(stats.energy + 1 * intensityFactor);
       stats.annoyance = clamp(stats.annoyance - 8 * intensityFactor);
       break;
   }
 
   const derivedEmotion = deriveEmotion(stats, prev.personality);
+  // Only let the message emotion become Kebo's visible emotion when the
+  // resulting vitals support it. This keeps the expression, state and Vitals
+  // panel describing the same internal condition.
   const strongSignal =
-    (messageEmotion === 'joy' && stats.happiness > 55) ||
-    (messageEmotion === 'angry' && stats.annoyance > 25) ||
-    (messageEmotion === 'sad' && stats.happiness < 55) ||
-    (messageEmotion === 'curious') ||
-    (messageEmotion === 'playful' && stats.energy > 40);
+    (messageEmotion === 'joy' && stats.happiness >= 60 && stats.energy >= 30) ||
+    (messageEmotion === 'angry' && stats.annoyance >= 35) ||
+    (messageEmotion === 'sad' && stats.happiness <= 50) ||
+    (messageEmotion === 'curious' && stats.stimulation >= 60 && stats.energy >= 25) ||
+    (messageEmotion === 'playful' && stats.energy >= 45 && stats.happiness >= 60) ||
+    (messageEmotion === 'anxious' && stats.happiness <= 55 && stats.stimulation <= 45) ||
+    (messageEmotion === 'tired' && stats.energy <= 30);
   const emotion = strongSignal ? messageEmotion : derivedEmotion;
 
   return { stats, emotion, derivedEmotion, messageEmotion };

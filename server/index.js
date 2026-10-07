@@ -19,7 +19,8 @@ const allowedOrigins = new Set(
 
 app.use(cors({
   origin(origin, callback) {
-    if (!origin || allowedOrigins.has(origin)) {
+    const isVercelPreview = typeof origin === 'string' && origin.startsWith('https://') && origin.endsWith('.vercel.app');
+    if (!origin || allowedOrigins.has(origin) || isVercelPreview) {
       callback(null, true);
       return;
     }

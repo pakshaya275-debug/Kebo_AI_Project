@@ -27,9 +27,9 @@ const MOOD_PHRASES: Record<string, string> = {
   joy:     'Kebo is feeling cheerful and positive!',
   calm:    'Kebo is feeling relaxed and at peace.',
   curious: 'Kebo is feeling curious and engaged!',
-  sad:     'Kebo is feeling a bit down...',
+  sad:     'Kebo is feeling a bit down and needs gentleness.',
   angry:   'Kebo is feeling frustrated and annoyed.',
-  anxious: 'Kebo is feeling a bit on edge.',
+  anxious: 'Kebo is feeling concerned and a little on edge.',
   tired:   'Kebo is feeling sleepy and low on energy.',
   playful: 'Kebo is feeling playful and energetic!',
 };
@@ -396,10 +396,37 @@ function DefaultChatLayout({
 }
 
 function emotionIntensity(state: ReturnType<typeof useKebo>['state']): number {
-  const base = (state.stats.happiness + state.stats.bond + state.stats.energy) / 3;
-  const annoy = state.stats.annoyance;
-  const raw = annoy > 20 ? Math.max(30, 100 - annoy) : base;
-  return Math.round(Math.max(10, Math.min(100, raw)));
+  const { energy, happiness, stimulation, annoyance } = state.stats;
+  let signal = 50;
+
+  switch (state.emotion) {
+    case 'joy':
+      signal = happiness;
+      break;
+    case 'calm':
+      signal = 100 - annoyance;
+      break;
+    case 'curious':
+      signal = stimulation;
+      break;
+    case 'sad':
+      signal = 100 - happiness;
+      break;
+    case 'angry':
+      signal = annoyance;
+      break;
+    case 'anxious':
+      signal = (stimulation + (100 - happiness)) / 2;
+      break;
+    case 'tired':
+      signal = 100 - energy;
+      break;
+    case 'playful':
+      signal = (happiness + energy + stimulation) / 3;
+      break;
+  }
+
+  return Math.round(Math.max(25, Math.min(100, signal)));
 }
 
 /* ─── Vital bar ─── */

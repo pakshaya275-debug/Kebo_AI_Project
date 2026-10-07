@@ -89,6 +89,124 @@ export function detectMessageEmotion(text: string): { emotion: EmotionKey | null
   return { emotion: score > 0 ? emotion : null, scores };
 }
 
+export interface ConversationEmotionAnalysis {
+  emotion: EmotionKey;
+  intensity: number;
+  target: 'kebo' | 'outside' | 'self' | 'unclear';
+}
+
+function normalizeMessage(text: string): string {
+  return text.toLowerCase().replace(/[’]/g, "'").replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * One decision point for the emotion Kebo visibly expresses.
+ *
+ * Explicit user language wins. LLM analysis helps with ambiguous language.
+ * Vitals provide the background mood only when the latest message is neutral.
+ */
+export function resolveConversationEmotion(
+  messageText: string,
+  analysis: ConversationEmotionAnalysis | undefined,
+  stats: VitalStats,
+  personality: KeboState['personality'],
+): {
+  emotion: EmotionKey;
+  messageEmotion: EmotionKey;
+  target: ConversationEmotionAnalysis['target'];
+  explicit: boolean;
+} {
+  const text = normalizeMessage(messageText);
+
+  const directedAtKebo =
+    /\b(stop that|stop it|stop jumping|enough|leave me alone|shut up)\b/.test(text)
+    || /\b(kebo|you)\b.*\b(annoying|irritating|frustrating|useless|stupid|idiot)\b/.test(text)
+    || /\b(don't like|dont like|hate)\b.*\b(kebo|you)\b/.test(text);
+
+  const selfAnger =
+    /\b(angry|mad|furious|frustrated|irritated|annoyed|fed up)\b.*\b(with|at|on)\s+(myself|me)\b/.test(text)
+    || /\b(i am|i'm|im|i feel|feeling)\b.*\b(angry|mad|furious|frustrated|irritated|annoyed|fed up)\b.*\b(myself|my life|my fault|my work|my marks|my exam|my project)\b/.test(text);
+
+  const anxious =
+    /\b(scared|afraid|terrified|fearful|nervous|worried|anxious|stressed|stress|overwhelmed|panic|panicking)\b/.test(text);
+
+  const sad =
+    /\b(sad|unhappy|heartbroken|lonely|hurt|crying|cry|disappointed|don't like my life|dont like my life)\b/.test(text);
+
+  const irritation =
+    /\b(irritated|irritating|annoyed|fed up|frustrated|frustrating|upset)\b/.test(text);
+
+  const tired =
+    /\b(tired|sleepy|exhausted|drained|no energy|low on energy)\b/.test(text);
+
+  const joyful =
+    /\b(happy|excited|amazing|awesome|excellent|great|wonderful|fantastic|relieved|proud|love|thanks|thank you)\b/.test(text);
+
+  const playful =
+    /\b(lol|haha|hehe|goofy|funny|playful|joke|kidding|let's play|lets play)\b/.test(text);
+
+  const curious =
+    /\b(why|how|what|when|where|who|explain|tell me|curious|interesting|can you)\b/.test(text)
+    || text.endsWith('?');
+
+  if (directedAtKebo) {
+    return { emotion: 'angry', messageEmotion: 'angry', target: 'kebo', explicit: true };
+  }
+
+  if (selfAnger) {
+    return { emotion: 'sad', messageEmotion: 'sad', target: 'self', explicit: true };
+  }
+
+  if (anxious) {
+    return { emotion: 'anxious', messageEmotion: 'anxious', target: 'outside', explicit: true };
+  }
+
+  if (sad) {
+    return { emotion: 'sad', messageEmotion: 'sad', target: 'self', explicit: true };
+  }
+
+  if (irritation) {
+    return { emotion: 'anxious', messageEmotion: 'anxious', target: 'outside', explicit: true };
+  }
+
+  if (tired) {
+    return { emotion: 'tired', messageEmotion: 'tired', target: 'self', explicit: true };
+  }
+
+  if (joyful) {
+    return { emotion: 'joy', messageEmotion: 'joy', target: 'unclear', explicit: true };
+  }
+
+  if (playful) {
+    return { emotion: 'playful', messageEmotion: 'playful', target: 'unclear', explicit: true };
+  }
+
+  if (curious) {
+    return { emotion: 'curious', messageEmotion: 'curious', target: 'unclear', explicit: true };
+  }
+
+  if (analysis) {
+    const messageEmotion =
+      analysis.emotion === 'angry' && analysis.target !== 'kebo'
+        ? 'sad'
+        : analysis.emotion;
+
+    return {
+      emotion: messageEmotion,
+      messageEmotion,
+      target: analysis.target,
+      explicit: analysis.intensity >= 0.65,
+    };
+  }
+
+  return {
+    emotion: deriveEmotion(stats, personality),
+    messageEmotion: 'calm',
+    target: 'unclear',
+    explicit: false,
+  };
+}
+
 /**
  * Derives the dominant emotion from vital stats and personality.
  * Emotions are compared by score — no single stat instantly wins.

@@ -30,6 +30,8 @@ export function KeboCreature({ emotion, activity, energy, vitals, size = 220 }: 
   const isAngry = emotion === 'angry';
   const isSad = emotion === 'sad' || isWithered;
   const isHappy = emotion === 'joy' || emotion === 'playful';
+  const isCurious = emotion === 'curious';
+  const isAnxious = emotion === 'anxious';
   const isTired = emotion === 'tired' || energy < 18;
   const isRed = isAngry || annoyance > 65;
 
@@ -44,6 +46,8 @@ export function KeboCreature({ emotion, activity, energy, vitals, size = 220 }: 
     isWithered ? 'kebo-mood-withered' : '',
     isRed ? 'kebo-mood-red' : '',
     isHappy ? 'kebo-mood-vibrant' : '',
+    isCurious ? 'kebo-mood-curious' : '',
+    isAnxious ? 'kebo-mood-anxious' : '',
     isSad ? 'kebo-mood-sad' : '',
     isTired ? 'kebo-mood-tired' : '',
   ].filter(Boolean).join(' ');
@@ -53,18 +57,31 @@ export function KeboCreature({ emotion, activity, energy, vitals, size = 220 }: 
       ? 'kebo-talk'
       : activity === 'thinking'
         ? 'kebo-think'
-        : activity === 'playing'
+        : emotion === 'playful'
           ? 'kebo-play'
-          : activity === 'resting'
-            ? 'kebo-rest'
+          : emotion === 'curious'
+            ? 'kebo-think'
             : isTired
               ? 'kebo-rest'
-              : isHappy
-                ? 'kebo-breathe-happy'
-                : 'kebo-breathe';
+              : emotion === 'sad' || emotion === 'anxious'
+                ? 'kebo-breathe'
+                : isHappy
+                  ? 'kebo-breathe-happy'
+                  : 'kebo-breathe';
 
-  const glowIntensity = isAngry ? 0.9 : isHappy ? 1 : isSad ? 0.3 : isTired ? 0.35 : 0.6;
-  const glowColor = isAngry ? '#ef4444' : isDry ? '#f59e0b' : isSad ? '#64748b' : e.color;
+  const glowIntensity =
+    isAngry ? 1
+      : isHappy ? 1
+        : isCurious ? 0.85
+          : isAnxious ? 0.75
+            : isSad ? 0.35
+              : isTired ? 0.35
+                : 0.6;
+  const glowColor =
+    isAngry ? '#ef4444'
+      : isDry ? '#f59e0b'
+        : isSad ? '#64748b'
+          : e.color;
 
   return (
     <div
@@ -124,7 +141,7 @@ export function KeboCreature({ emotion, activity, energy, vitals, size = 220 }: 
           img.src = '/kebo-model.png';
         }}
       />
-      {activity === 'thinking' && <div className="kebo-thought-3d"><i /><i /><i /></div>}
+      {(activity === 'thinking' || isCurious) && <div className="kebo-thought-3d"><i /><i /><i /></div>}
       {isTired && <div className="kebo-zzz-3d">z<span>z</span><b>z</b></div>}
       <span className="sr-only">Energy {Math.round(energy)} percent</span>
     </div>

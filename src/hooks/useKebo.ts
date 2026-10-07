@@ -8,7 +8,7 @@ import {
   type Message,
   type VitalStats,
 } from '../types/kebo';
-import { clamp, decayStats, deriveEmotion, detectMessageEmotion } from '../lib/keboEngine';
+import { clamp, decayStats, deriveEmotion, resolveConversationEmotion, detectMessageEmotion } from '../lib/keboEngine';
 import { idleThought } from '../lib/mockAgent';
 import { analyzeKeboMessage, askKeboLLM, type KeboEmotionAnalysis, type KeboReasoningPlan } from '../lib/llmAgent';
 import { addMemories, extractMemories, loadMemories, memoryContext, saveMemories, type KeboMemory } from '../lib/memory';
@@ -111,18 +111,14 @@ export function computeConversationImpact(
   stats.stimulation = clamp(stats.stimulation + 2 * intensityFactor);
   stats.bond = clamp(stats.bond + 0.6 * intensityFactor);
 
-  const rawMessageEmotion: KeboState['emotion'] =
-    analysis?.emotion ?? detectMessageEmotion(messageText).emotion ?? 'calm';
-
-  // If the user is angry at themselves or at an outside situation, Kebo
-  // should respond with concern rather than becoming angry at the user.
-  // Only anger explicitly directed at Kebo should make Kebo frustrated.
-  const messageEmotion: KeboState['emotion'] =
-    rawMessageEmotion === 'angry' && analysis?.target !== 'kebo'
-      ? 'sad'
-      : rawMessageEmotion;
-
-  const targetIsKebo = analysis?.target === 'kebo' || !analysis;
+  const decision = resolveConversationEmotion(
+    messageText,
+    analysis,
+    stats,
+    prev.personality,
+  );
+  const messageEmotion = decision.messageEmotion;
+  const targetIsKebo = decision.target === 'kebo';
 
   switch (messageEmotion) {
     case 'joy':
@@ -183,25 +179,9 @@ export function computeConversationImpact(
 
   const derivedEmotion = deriveEmotion(stats, prev.personality);
 
-  // A message can nudge Kebo's mood, but it cannot override contradictory
-  // internal state. This is what keeps the emotion badge, Vitals and artwork
-  // describing the same condition.
-  // A strong, clearly detected user emotion should be visible immediately.
-  // Vitals still shape and persist the state, but a strong message must not be
-  // hidden by a cheerful background state.
-  const strongMessageSignal = Boolean(analysis) && analysis.intensity >= 0.55;
-
-  const messageSupportsVisibleState =
-    strongMessageSignal
-    || (messageEmotion === 'joy' && stats.happiness >= 55 && stats.energy >= 35 && stats.annoyance < 60)
-    || (messageEmotion === 'angry' && stats.annoyance >= 25)
-    || (messageEmotion === 'sad' && stats.happiness <= 75)
-    || (messageEmotion === 'curious' && stats.stimulation >= 55 && stats.energy >= 25)
-    || (messageEmotion === 'playful' && stats.energy >= 50 && stats.happiness >= 60)
-    || (messageEmotion === 'anxious' && stats.happiness <= 60 && stats.stimulation >= 50)
-    || (messageEmotion === 'tired' && stats.energy <= 35);
-
-  const emotion = messageSupportsVisibleState ? messageEmotion : derivedEmotion;
+  // The latest explicit message controls the visible emotion for this
+  // interaction. Background vitals control mood only for neutral messages.
+  const emotion = decision.explicit ? decision.emotion : derivedEmotion;
 
   return { stats, emotion, derivedEmotion, messageEmotion };
 }

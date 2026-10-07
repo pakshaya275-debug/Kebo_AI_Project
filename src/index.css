@@ -549,3 +549,59 @@ body {
 .custom-scroll::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* ==================== Strong emotion expression ==================== */
+/* These are intentionally noticeable: the character should visibly change
+   when the internal emotional state changes, not only change a small tint. */
+.kebo-emotion-joy .kebo-model-image {
+  animation: kebo-emotion-joy-pulse 1.8s ease-in-out infinite;
+}
+.kebo-emotion-playful .kebo-model-image {
+  animation: kebo-emotion-playful-bounce 0.9s ease-in-out infinite;
+}
+.kebo-emotion-curious .kebo-model-image {
+  animation: kebo-emotion-curious-sway 1.5s ease-in-out infinite;
+}
+.kebo-emotion-sad .kebo-model-image {
+  animation: kebo-emotion-sad-droop 2.8s ease-in-out infinite;
+  transform-origin: 50% 90%;
+}
+.kebo-emotion-tired .kebo-model-image {
+  animation: kebo-emotion-tired-breathe 4.2s ease-in-out infinite;
+  transform-origin: 50% 92%;
+}
+.kebo-emotion-anxious .kebo-model-image {
+  animation: kebo-emotion-anxious-shake 0.75s ease-in-out infinite;
+}
+.kebo-emotion-calm .kebo-model-image {
+  animation: kebo-emotion-calm-breathe 3.8s ease-in-out infinite;
+}
+@keyframes kebo-emotion-joy-pulse {
+  0%, 100% { transform: scale(1.18) translateY(2%); }
+  50% { transform: scale(1.25) translateY(-2%); }
+}
+@keyframes kebo-emotion-playful-bounce {
+  0%, 100% { transform: scale(1.18) translateY(2%) rotate(-2deg); }
+  50% { transform: scale(1.24) translateY(-7%) rotate(2deg); }
+}
+@keyframes kebo-emotion-curious-sway {
+  0%, 100% { transform: scale(1.19) translateY(2%) rotate(-2deg); }
+  50% { transform: scale(1.22) translateY(-1%) rotate(3deg); }
+}
+@keyframes kebo-emotion-sad-droop {
+  0%, 100% { transform: scale(1.18) translateY(4%) rotate(0deg); }
+  50% { transform: scale(1.14) translateY(9%) rotate(-1deg); }
+}
+@keyframes kebo-emotion-tired-breathe {
+  0%, 100% { transform: scale(1.14) translateY(6%); }
+  50% { transform: scale(1.08) translateY(10%); }
+}
+@keyframes kebo-emotion-anxious-shake {
+  0%, 100% { transform: scale(1.18) translateY(2%) translateX(0); }
+  25% { transform: scale(1.19) translateY(2%) translateX(-3px); }
+  75% { transform: scale(1.19) translateY(2%) translateX(3px); }
+}
+@keyframes kebo-emotion-calm-breathe {
+  0%, 100% { transform: scale(1.18) translateY(2%); }
+  50% { transform: scale(1.21) translateY(0); }
+}

@@ -51,7 +51,20 @@ function loadState(): KeboState {
       const parsed: unknown = JSON.parse(raw);
       if (!isValidState(parsed)) throw new Error('Invalid Kebo state');
       const elapsed = Math.max(0, Date.now() - parsed.lastInteraction);
-      const decayed = decayStats(parsed.stats, elapsed);
+      let restoredStats = decayStats(parsed.stats, elapsed);
+
+      // Older builds could drain energy/happiness to ~0 and leave Kebo stuck
+      // in the tired state. Recover that clearly broken persisted state once.
+      if (restoredStats.energy <= 5 && restoredStats.happiness <= 5) {
+        restoredStats = {
+          ...restoredStats,
+          energy: 72,
+          happiness: 68,
+          stimulation: Math.max(restoredStats.stimulation, 45),
+          annoyance: Math.min(restoredStats.annoyance, 20),
+        };
+      }
+      const decayed = restoredStats;
       const now = Date.now();
       return {
         ...parsed,
@@ -88,7 +101,9 @@ export function computeConversationImpact(
   analysis?: KeboEmotionAnalysis
 ): ConversationResult {
   const stats = { ...prev.stats };
-  const intensityFactor = Math.max(0.2, Math.min(1, intensity));
+  // Make each meaningful message produce a visible but bounded state change.
+  // The LLM may return a low intensity, so we apply a small floor for UI feedback.
+  const intensityFactor = Math.max(0.65, Math.min(1, intensity * 1.4));
 
   // A normal conversation should not drain Kebo's energy or max out
   // stimulation/bond after only a few messages. Each emotion adds its own
@@ -105,57 +120,58 @@ export function computeConversationImpact(
 
   switch (messageEmotion) {
     case 'joy':
-      stats.happiness = clamp(stats.happiness + 7 * intensityFactor);
-      stats.energy = clamp(stats.energy + 1 * intensityFactor);
-      stats.stimulation = clamp(stats.stimulation + 1 * intensityFactor);
-      stats.bond = clamp(stats.bond + 2 * intensityFactor);
-      stats.annoyance = clamp(stats.annoyance - 12 * intensityFactor);
+      stats.happiness = clamp(stats.happiness + 12 * intensityFactor);
+      stats.energy = clamp(stats.energy + 8 * intensityFactor);
+      stats.stimulation = clamp(stats.stimulation + 4 * intensityFactor);
+      stats.bond = clamp(stats.bond + 3 * intensityFactor);
+      stats.annoyance = clamp(stats.annoyance - 18 * intensityFactor);
       break;
     case 'angry':
-      stats.happiness = clamp(stats.happiness - 8 * intensityFactor);
-      stats.energy = clamp(stats.energy - 2 * intensityFactor);
-      stats.annoyance = clamp(stats.annoyance + (targetIsKebo ? 18 : 8) * intensityFactor);
-      if (targetIsKebo) stats.bond = clamp(stats.bond - 2 * intensityFactor);
+      stats.happiness = clamp(stats.happiness - 14 * intensityFactor);
+      stats.energy = clamp(stats.energy - 8 * intensityFactor);
+      stats.stimulation = clamp(stats.stimulation + 10 * intensityFactor);
+      stats.annoyance = clamp(stats.annoyance + (targetIsKebo ? 28 : 16) * intensityFactor);
+      if (targetIsKebo) stats.bond = clamp(stats.bond - 4 * intensityFactor);
       break;
     case 'sad':
-      stats.happiness = clamp(stats.happiness - 6 * intensityFactor);
-      stats.energy = clamp(stats.energy - 1 * intensityFactor);
-      stats.stimulation = clamp(stats.stimulation + 1 * intensityFactor);
-      stats.bond = clamp(stats.bond + 1 * intensityFactor);
-      stats.annoyance = clamp(stats.annoyance - 3 * intensityFactor);
+      stats.happiness = clamp(stats.happiness - 12 * intensityFactor);
+      stats.energy = clamp(stats.energy - 5 * intensityFactor);
+      stats.stimulation = clamp(stats.stimulation + 4 * intensityFactor);
+      stats.bond = clamp(stats.bond + 2 * intensityFactor);
+      stats.annoyance = clamp(stats.annoyance - 4 * intensityFactor);
       break;
     case 'playful':
-      stats.happiness = clamp(stats.happiness + 6 * intensityFactor);
-      stats.energy = clamp(stats.energy - 2 * intensityFactor);
-      stats.stimulation = clamp(stats.stimulation + 5 * intensityFactor);
-      stats.bond = clamp(stats.bond + 2 * intensityFactor);
-      stats.annoyance = clamp(stats.annoyance - 10 * intensityFactor);
+      stats.happiness = clamp(stats.happiness + 10 * intensityFactor);
+      stats.energy = clamp(stats.energy - 4 * intensityFactor);
+      stats.stimulation = clamp(stats.stimulation + 10 * intensityFactor);
+      stats.bond = clamp(stats.bond + 4 * intensityFactor);
+      stats.annoyance = clamp(stats.annoyance - 15 * intensityFactor);
       break;
     case 'curious':
-      stats.stimulation = clamp(stats.stimulation + 5 * intensityFactor);
-      stats.energy = clamp(stats.energy + 0.5 * intensityFactor);
-      stats.happiness = clamp(stats.happiness + 2 * intensityFactor);
-      stats.bond = clamp(stats.bond + 1 * intensityFactor);
-      stats.annoyance = clamp(stats.annoyance - 5 * intensityFactor);
+      stats.stimulation = clamp(stats.stimulation + 14 * intensityFactor);
+      stats.energy = clamp(stats.energy + 3 * intensityFactor);
+      stats.happiness = clamp(stats.happiness + 4 * intensityFactor);
+      stats.bond = clamp(stats.bond + 2 * intensityFactor);
+      stats.annoyance = clamp(stats.annoyance - 8 * intensityFactor);
       break;
     case 'anxious':
-      stats.happiness = clamp(stats.happiness - 3 * intensityFactor);
-      stats.energy = clamp(stats.energy - 1.5 * intensityFactor);
-      stats.stimulation = clamp(stats.stimulation + 3 * intensityFactor);
-      stats.bond = clamp(stats.bond + 0.5 * intensityFactor);
+      stats.happiness = clamp(stats.happiness - 7 * intensityFactor);
+      stats.energy = clamp(stats.energy - 5 * intensityFactor);
+      stats.stimulation = clamp(stats.stimulation + 10 * intensityFactor);
+      stats.bond = clamp(stats.bond + 1 * intensityFactor);
       break;
     case 'tired':
-      stats.happiness = clamp(stats.happiness - 1 * intensityFactor);
-      stats.energy = clamp(stats.energy - 3 * intensityFactor);
-      stats.stimulation = clamp(stats.stimulation - 1 * intensityFactor);
+      stats.happiness = clamp(stats.happiness - 3 * intensityFactor);
+      stats.energy = clamp(stats.energy - 10 * intensityFactor);
+      stats.stimulation = clamp(stats.stimulation - 5 * intensityFactor);
       break;
     case 'calm':
     default:
-      stats.happiness = clamp(stats.happiness + 1 * intensityFactor);
-      stats.energy = clamp(stats.energy + 0.5 * intensityFactor);
-      stats.stimulation = clamp(stats.stimulation + 1 * intensityFactor);
-      stats.bond = clamp(stats.bond + 0.5 * intensityFactor);
-      stats.annoyance = clamp(stats.annoyance - 5 * intensityFactor);
+      stats.happiness = clamp(stats.happiness + 3 * intensityFactor);
+      stats.energy = clamp(stats.energy + 4 * intensityFactor);
+      stats.stimulation = clamp(stats.stimulation + 3 * intensityFactor);
+      stats.bond = clamp(stats.bond + 1.5 * intensityFactor);
+      stats.annoyance = clamp(stats.annoyance - 8 * intensityFactor);
       break;
   }
 

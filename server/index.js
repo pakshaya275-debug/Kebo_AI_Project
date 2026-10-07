@@ -200,7 +200,12 @@ app.post('/api/kebo-analyze', async (req, res) => {
           role: 'system',
           content: `Analyze the user's message for Kebo's emotional state. Return only valid JSON with this exact shape: {"emotion":"joy|sad|angry|curious|calm|playful|tired|anxious","intensity":0.0,"target":"kebo|outside|self|unclear","reason":"short explanation"}.
 
-Choose the dominant meaning, not merely the strongest word. Negative words aimed at work, school, periods, weather, or another person are not anger at Kebo. Negated statements such as "I don't hate Kebo" are not angry. Use intensity between 0 and 1. Use joy for affection, praise, apologies, or relief; sad for sadness, worry, exhaustion, or disappointment; angry only when anger is clearly expressed toward Kebo or generally; curious for genuine questions. Current Kebo emotion: ${currentEmotion || 'calm'}.`,
+Choose the dominant meaning, not merely the strongest word. Determine the target carefully:
+- target "kebo" means the user is angry/frustrated with Kebo itself.
+- target "self" means the user is angry/frustrated with themselves; Kebo should respond with concern, not anger.
+- target "outside" means the anger/frustration is about work, school, another person, or another situation; Kebo should respond supportively, not as if it is being attacked.
+- target "unclear" means the target cannot be determined.
+Negated statements such as "I don't hate Kebo" are not angry. Use intensity between 0 and 1. Use joy for affection, praise, apologies, or relief; sad for sadness, worry, exhaustion, disappointment, or anger directed at self/outside; angry only when anger is clearly directed at Kebo; curious for genuine questions. Current Kebo emotion: ${currentEmotion || 'calm'}.`,
         },
         { role: 'user', content: message.trim() },
       ],

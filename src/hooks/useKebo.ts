@@ -111,10 +111,16 @@ export function computeConversationImpact(
   stats.stimulation = clamp(stats.stimulation + 2 * intensityFactor);
   stats.bond = clamp(stats.bond + 0.6 * intensityFactor);
 
+  const rawMessageEmotion: KeboState['emotion'] =
+    analysis?.emotion ?? detectMessageEmotion(messageText).emotion ?? 'calm';
+
+  // If the user is angry at themselves or at an outside situation, Kebo
+  // should respond with concern rather than becoming angry at the user.
+  // Only anger explicitly directed at Kebo should make Kebo frustrated.
   const messageEmotion: KeboState['emotion'] =
-    analysis?.target === 'outside' && analysis.emotion === 'angry'
+    rawMessageEmotion === 'angry' && analysis?.target !== 'kebo'
       ? 'sad'
-      : (analysis?.emotion ?? detectMessageEmotion(messageText).emotion ?? 'calm');
+      : rawMessageEmotion;
 
   const targetIsKebo = analysis?.target === 'kebo' || !analysis;
 
@@ -180,14 +186,20 @@ export function computeConversationImpact(
   // A message can nudge Kebo's mood, but it cannot override contradictory
   // internal state. This is what keeps the emotion badge, Vitals and artwork
   // describing the same condition.
+  // A strong, clearly detected user emotion should be visible immediately.
+  // Vitals still shape and persist the state, but a strong message must not be
+  // hidden by a cheerful background state.
+  const strongMessageSignal = Boolean(analysis) && analysis.intensity >= 0.55;
+
   const messageSupportsVisibleState =
-    (messageEmotion === 'joy' && stats.happiness >= 55 && stats.energy >= 35 && stats.annoyance < 60) ||
-    (messageEmotion === 'angry' && stats.annoyance >= 35) ||
-    (messageEmotion === 'sad' && stats.happiness <= 55) ||
-    (messageEmotion === 'curious' && stats.stimulation >= 55 && stats.energy >= 25) ||
-    (messageEmotion === 'playful' && stats.energy >= 50 && stats.happiness >= 60) ||
-    (messageEmotion === 'anxious' && stats.happiness <= 60 && stats.stimulation >= 50) ||
-    (messageEmotion === 'tired' && stats.energy <= 35);
+    strongMessageSignal
+    || (messageEmotion === 'joy' && stats.happiness >= 55 && stats.energy >= 35 && stats.annoyance < 60)
+    || (messageEmotion === 'angry' && stats.annoyance >= 25)
+    || (messageEmotion === 'sad' && stats.happiness <= 75)
+    || (messageEmotion === 'curious' && stats.stimulation >= 55 && stats.energy >= 25)
+    || (messageEmotion === 'playful' && stats.energy >= 50 && stats.happiness >= 60)
+    || (messageEmotion === 'anxious' && stats.happiness <= 60 && stats.stimulation >= 50)
+    || (messageEmotion === 'tired' && stats.energy <= 35);
 
   const emotion = messageSupportsVisibleState ? messageEmotion : derivedEmotion;
 

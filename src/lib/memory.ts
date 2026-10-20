@@ -100,7 +100,7 @@ export function extractMemories(text: string): string[] {
 export function addMemories(existing: KeboMemory[], texts: string[]): KeboMemory[] {
   const next = [...existing];
   for (const rawText of texts) {
-    const text = rawText.trim().replace(/\\s+/g, ' ');
+    const text = rawText.trim().replace(/\s+/g, ' ');
     if (text.length < 6 || text.length > 220) continue;
     const normalized = text.toLocaleLowerCase();
     const exact = next.findIndex((memory) => memory.text.trim().toLocaleLowerCase() === normalized);

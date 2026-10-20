@@ -328,15 +328,6 @@ export function useKebo() {
         createdAt: Date.now(),
       };
       setMessages((msgs) => [...msgs, userMsg]);
-      const newMemoryTexts = extractMemories(trimmed);
-      if (newMemoryTexts.length) {
-        setMemories((existing) => {
-          const next = addMemories(existing, newMemoryTexts);
-          memoriesRef.current = next;
-          return next;
-        });
-      }
-
       setState((prev) => {
         const next = { ...prev, activity: 'thinking' as Activity };
         stateRef.current = next;
@@ -399,6 +390,16 @@ export function useKebo() {
           } catch (error) {
             if (isCancelled()) return;
             console.error('[Kebo] LLM unavailable:', error instanceof Error ? error.message : error);
+            // Preserve the local extractor only as an offline fallback. Successful
+            // turns use the structured memory candidates returned by the LLM.
+            const fallbackMemoryTexts = extractMemories(trimmed);
+            if (fallbackMemoryTexts.length) {
+              setMemories((existing) => {
+                const next = addMemories(existing, fallbackMemoryTexts);
+                memoriesRef.current = next;
+                return next;
+              });
+            }
             reply = {
               text: "I’m having trouble reaching my language engine right now. Please try again in a moment. 🌱",
               emotion: updatedState.emotion,

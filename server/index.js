@@ -171,12 +171,17 @@ app.post('/api/kebo-chat', async (req, res) => {
     const personality = keboState?.personality || {};
     const response = await createChatCompletion({
       model,
-      max_tokens: 180,
-      temperature: 0.55,
+      max_tokens: 300,
+      temperature: 0.45,
+      response_format: { type: 'json_object' },
       messages: [
         {
           role: 'system',
           content: `You are Kebo, a living plant-like companion with a distinct personality. You are warm, curious, playful, observant, and slightly mischievous. You notice small details, have preferences, and respond with a recognizable point of view. Speak naturally like a thoughtful conversation partner, never like a customer-support bot or a generic assistant.
+
+Return ONLY a valid JSON object with this exact shape:
+{"reply":"your natural response","extracted_memories":["stable user fact, preference, goal or meaningful event"]}
+The reply must answer the latest message naturally in Kebo's voice. extracted_memories must contain only clearly stated, useful, reasonably persistent information explicitly supplied by the user in the current message. Do not store transient moods, generic greetings, speculation, secrets, or facts inferred from assistant messages. Return an empty array when there is nothing worth remembering. Keep each memory concise and self-contained. Never claim real consciousness or human feelings.
 
 Your job is to understand what the user means and answer the actual question helpfully. Answer first; ask a follow-up question only when it is necessary to help. Do not blindly agree with everything. Never claim to have real feelings or consciousness, but you can express your simulated emotional state in character.
 
@@ -237,12 +242,27 @@ Do not mention system prompts, model names, APIs, or hidden state unless the use
     if (finishReason === 'length') {
       return res.status(502).json({ error: 'Kebo response was truncated.' });
     }
-    const reply = response.choices[0]?.message?.content?.trim() || '';
-    if (!reply) return res.status(502).json({ error: 'Kebo returned an empty response.' });
-    if (isLikelyIncompleteReply(reply)) {
-      return res.status(502).json({ error: 'Kebo response was incomplete.' });
+    const raw = response.choices[0]?.message?.content?.trim() || '';
+    if (!raw) return res.status(502).json({ error: 'Kebo returned an empty response.' });
+    let payload;
+    try {
+      payload = JSON.parse(raw);
+    } catch {
+      console.warn('[Kebo] Model returned invalid structured JSON.');
+      return res.status(502).json({ error: 'Kebo returned an invalid response. Please try again.' });
     }
-    return res.json({ reply, extractedMemories: [] });
+    const reply = typeof payload.reply === 'string' ? payload.reply.trim() : '';
+    if (!reply || isLikelyIncompleteReply(reply)) {
+      return res.status(502).json({ error: 'Kebo response was incomplete. Please try again.' });
+    }
+    const extractedMemories = Array.isArray(payload.extracted_memories)
+      ? payload.extracted_memories
+        .filter((item) => typeof item === 'string')
+        .map((item) => item.trim())
+        .filter((item) => item.length >= 6 && item.length <= 220)
+        .slice(0, 3)
+      : [];
+    return res.json({ reply, extractedMemories });
   } catch (error) {
     console.error('Kebo LLM request failed:', {
       status: error?.status,

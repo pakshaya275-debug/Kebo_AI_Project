@@ -33,7 +33,7 @@ export function useSpeechRecognition(onFinalTranscript: (text: string) => void):
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [language, setLanguage] = useState(() => navigator.language || 'en-US');
+  const [language, setLanguage] = useState(() => typeof navigator !== 'undefined' ? navigator.language || 'en-US' : 'en-US');
 
   useEffect(() => {
     onFinalTranscriptRef.current = onFinalTranscript;
@@ -49,6 +49,7 @@ export function useSpeechRecognition(onFinalTranscript: (text: string) => void):
       try {
         setError(null);
         setTranscript('');
+        if (!navigator.mediaDevices?.getUserMedia) throw new Error('Microphone access is not supported in this browser.');
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         streamRef.current = stream;
         const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : '';
@@ -83,7 +84,15 @@ export function useSpeechRecognition(onFinalTranscript: (text: string) => void):
         recorder.start();
         recorderRef.current = recorder;
       } catch (recordingError) {
-        setError(recordingError instanceof DOMException && recordingError.name === 'NotAllowedError' ? 'Microphone permission was denied.' : 'Could not start microphone recording.');
+        streamRef.current?.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+        recorderRef.current = null;
+        setIsListening(false);
+        setError(recordingError instanceof DOMException && recordingError.name === 'NotAllowedError'
+          ? 'Microphone permission was denied. You can continue using text chat.'
+          : recordingError instanceof Error && recordingError.message.includes('not supported')
+            ? recordingError.message
+            : 'Could not start microphone recording. You can continue using text chat.');
       }
     })();
   }, [isListening, isSupported, language]);

@@ -224,7 +224,7 @@ Current simulated state:
 - Relevant memories: ${JSON.stringify(Array.isArray(relevantMemories) ? relevantMemories : [])}
 - Validated reasoning plan: ${JSON.stringify(reasoningPlan)}
 
-Follow the validated reasoning plan. Use the current simulated state as a style signal, not as a reason to ignore the user's actual message.
+Use the current simulated state as a style signal, not as a reason to ignore the user's actual message.
 Before answering, silently decide:
 1. What is the user feeling or trying to do?
 2. What is Kebo currently feeling?

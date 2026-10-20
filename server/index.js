@@ -222,8 +222,6 @@ Current simulated state:
 - Annoyance: ${stats.annoyance ?? 'unknown'} / 100
 - Personality traits: ${JSON.stringify(personality)}
 - Relevant memories: ${JSON.stringify(Array.isArray(relevantMemories) ? relevantMemories : [])}
-- Validated reasoning plan: ${JSON.stringify(reasoningPlan)}
-
 Use the current simulated state as a style signal, not as a reason to ignore the user's actual message.
 Before answering, silently decide:
 1. What is the user feeling or trying to do?

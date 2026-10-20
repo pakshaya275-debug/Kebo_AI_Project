@@ -75,7 +75,7 @@ export async function askKeboLLM({
   recentConversation,
   relevantMemories,
   signal,
-}: AskKeboArgs): Promise<{ text: string; reasoningPlan?: KeboReasoningPlan }> {
+}: AskKeboArgs): Promise<{ text: string; extractedMemories: string[] }> {
   const response = await fetch(API_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -89,10 +89,10 @@ export async function askKeboLLM({
     signal,
   });
 
-  const data = await readJsonResponse(response) as { reply?: string; reasoningPlan?: KeboReasoningPlan; error?: string };
+  const data = await readJsonResponse(response) as { reply?: string; extractedMemories?: string[]; error?: string };
   if (!response.ok || typeof data.reply !== 'string' || !data.reply.trim()) {
     throw new Error(data.error || 'Kebo backend failed.');
   }
 
-  return { text: data.reply.trim(), reasoningPlan: data.reasoningPlan };
+  return { text: data.reply.trim(), extractedMemories: Array.isArray(data.extractedMemories) ? data.extractedMemories.filter((item): item is string => typeof item === 'string') : [] };
 }

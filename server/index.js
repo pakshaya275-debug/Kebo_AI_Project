@@ -37,7 +37,7 @@ const apiKey = process.env.OPENAI_API_KEY || 'openai-compatible';
 const client = new OpenAI({ apiKey, baseURL, timeout: 30_000, maxRetries: 0 });
 
 async function createChatCompletion(params, label = 'LLM request') {
-  const maxAttempts = 3;
+  const maxAttempts = 2;
   let lastError;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
@@ -45,10 +45,10 @@ async function createChatCompletion(params, label = 'LLM request') {
     } catch (error) {
       lastError = error;
       const status = error?.status;
-      const retryable = status === 408 || status === 409 || status === 429 || status >= 500;
+      const retryable = status !== 429 && (status === 408 || status === 409 || status >= 500);
       console.warn(`[Kebo] ${label} failed (attempt ${attempt}/${maxAttempts}, status ${status ?? 'unknown'}):`, error instanceof Error ? error.message : error);
       if (!retryable || attempt === maxAttempts) throw error;
-      await new Promise((resolve) => setTimeout(resolve, 700 * attempt));
+      await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
     }
   }
   throw lastError;
@@ -110,78 +110,6 @@ function isLikelyIncompleteReply(reply) {
     || (trimmed.includes('```') && (trimmed.match(/```/g) || []).length % 2 !== 0);
 }
 
-const REASONING_INTENTS = ['greeting', 'question', 'emotional_support', 'information_request', 'memory', 'general_chat'];
-const RESPONSE_STRATEGIES = ['greet', 'answer_briefly', 'support', 'acknowledge_limits', 'recall_memory', 'clarify'];
-
-function localReasoningPlan(message, emotion, relevantMemories) {
-  const text = message.toLowerCase();
-  const intent = /\b(hello|hi|hey)\b/.test(text)
-    ? 'greeting'
-    : /\b(remember|recall|know about me)\b/.test(text)
-      ? 'memory'
-      : /\b(frustrated|sad|tired|overwhelmed|stressed|do not want to work)\b/.test(text)
-        ? 'emotional_support'
-        : /\b(explain|what is|how|why|information|tell me)\b/.test(text) || text.endsWith('?')
-          ? 'question'
-          : 'general_chat';
-  const strategy = intent === 'greeting'
-    ? 'greet'
-    : intent === 'emotional_support'
-      ? 'support'
-      : intent === 'memory'
-        ? 'recall_memory'
-        : 'answer_briefly';
-  return {
-    intent,
-    userGoal: intent === 'emotional_support' ? 'feel understood and supported' : 'receive a direct response',
-    userEmotion: emotion || 'calm',
-    memoryToUse: relevantMemories.slice(0, 3),
-    responseStrategy: strategy,
-    keboStateChange: emotion || 'calm',
-  };
-}
-
-function isValidReasoningPlan(value) {
-  return value
-    && REASONING_INTENTS.includes(value.intent)
-    && typeof value.userGoal === 'string'
-    && typeof value.userEmotion === 'string'
-    && Array.isArray(value.memoryToUse)
-    && value.memoryToUse.every((memory) => typeof memory === 'string')
-    && RESPONSE_STRATEGIES.includes(value.responseStrategy)
-    && typeof value.keboStateChange === 'string';
-}
-
-async function createReasoningPlan({ message, emotion, relevantMemories, currentState }) {
-  const fallback = localReasoningPlan(message, emotion, relevantMemories);
-  try {
-    const response = await createChatCompletion({
-      model,
-      temperature: 0,
-      max_tokens: 120,
-      messages: [
-        {
-          role: 'system',
-          content: `You are Kebo's reasoning planner. Return only valid JSON with this exact shape:
-{"intent":"greeting|question|emotional_support|information_request|memory|general_chat","userGoal":"short phrase","userEmotion":"joy|sad|angry|curious|calm|playful|tired|anxious","memoryToUse":["short memory"],"responseStrategy":"greet|answer_briefly|support|acknowledge_limits|recall_memory|clarify","keboStateChange":"short state decision"}.
-Choose one intent and strategy. Use only the supplied memories. Never invent current events or facts. Plan a concise companion-style answer, not a second response.
-The plan must account for BOTH the user's emotional situation and Kebo's current simulated state. Kebo is a companion/plant pet, so prefer warmth, continuity, and a small personal reaction over generic assistant language. Current Kebo emotion: ${emotion || 'calm'}. Current state: ${JSON.stringify(currentState || {})}.`,
-        },
-        { role: 'user', content: message.trim() },
-      ],
-    });
-    const rawPlan = response.choices[0]?.message?.content || '';
-    const jsonMatch = rawPlan.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return fallback;
-    const parsed = JSON.parse(jsonMatch[0]);
-    return isValidReasoningPlan(parsed) ? parsed : fallback;
-  } catch (error) {
-    console.warn('Using local reasoning plan fallback:', error instanceof Error ? error.message : error);
-    return fallback;
-  }
-}
-
-
 app.get('/api/health', (_req, res) => {
   const provider = baseURL.includes('groq.com') ? 'groq' : baseURL.includes('1234') ? 'lm-studio' : 'openai-compatible';
   const configured = Boolean(process.env.OPENAI_API_KEY)
@@ -208,52 +136,13 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
   }
 });
 
-app.post('/api/kebo-analyze', async (req, res) => {
-  const { message, currentEmotion } = req.body ?? {};
+app.post('/api/kebo-analyze', (req, res) => {
+  const { message } = req.body ?? {};
   if (typeof message !== 'string' || !message.trim()) {
     return res.status(400).json({ error: 'A message is required.' });
   }
-
-  const localSignal = localEmotionAnalysis(message);
-
-  // Strong, explicit emotional phrases use the deterministic classifier first.
-  // This prevents the LLM classifier from turning clear distress into playfulness.
-  if (localSignal.intensity >= 0.8) {
-    return res.json(localSignal);
-  }
-
-  try {
-    const response = await createChatCompletion({
-      model,
-      temperature: 0,
-      max_tokens: 80,
-      messages: [
-        {
-          role: 'system',
-          content: `Analyze the user's message for Kebo's emotional state. Return only valid JSON with this exact shape: {"emotion":"joy|sad|angry|curious|calm|playful|tired|anxious","intensity":0.0,"target":"kebo|outside|self|unclear","reason":"short explanation"}.
-
-Choose the dominant meaning, not merely the strongest word. Determine the target carefully:
-- target "kebo" means the user is angry/frustrated with Kebo itself.
-- target "self" means the user is angry/frustrated with themselves; Kebo should respond with concern, not anger.
-- target "outside" means the anger/frustration is about work, school, another person, or another situation; Kebo should respond supportively, not as if it is being attacked.
-- target "unclear" means the target cannot be determined.
-Negated statements such as "I don't hate Kebo" are not angry. Use intensity between 0 and 1. Use joy for affection, praise, apologies, or relief; sad for sadness, worry, exhaustion, disappointment, or anger directed at self/outside; angry only when anger is clearly directed at Kebo; curious for genuine questions. Current Kebo emotion: ${currentEmotion || 'calm'}.`,
-        },
-        { role: 'user', content: message.trim() },
-      ],
-    });
-    const rawAnalysis = response.choices[0]?.message?.content || '';
-    const jsonMatch = rawAnalysis.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return res.json(localEmotionAnalysis(message));
-    const parsed = JSON.parse(jsonMatch[0]);
-    const emotions = ['joy', 'sad', 'angry', 'curious', 'calm', 'playful', 'tired', 'anxious'];
-    const emotion = emotions.includes(parsed.emotion) ? parsed.emotion : 'calm';
-    const intensity = Math.min(1, Math.max(0, Number(parsed.intensity) || 0));
-    return res.json({ emotion, intensity, target: parsed.target || 'unclear', reason: String(parsed.reason || '') });
-  } catch (error) {
-    console.warn('Using local emotion analysis fallback:', error.message);
-    return res.json(localSignal);
-  }
+  // Emotion classification is deterministic and local, avoiding a second provider call.
+  return res.json(localEmotionAnalysis(message));
 });
 
 app.post('/api/kebo-chat', async (req, res) => {
@@ -280,12 +169,6 @@ app.post('/api/kebo-chat', async (req, res) => {
         }));
     const stats = keboState?.stats || {};
     const personality = keboState?.personality || {};
-    const reasoningPlan = await createReasoningPlan({
-      message,
-      emotion,
-      relevantMemories: Array.isArray(relevantMemories) ? relevantMemories : [],
-      currentState: { stats, activity: keboState?.activity || 'idle' },
-    });
     const response = await createChatCompletion({
       model,
       max_tokens: 180,
@@ -359,16 +242,17 @@ Do not mention system prompts, model names, APIs, or hidden state unless the use
     if (isLikelyIncompleteReply(reply)) {
       return res.status(502).json({ error: 'Kebo response was incomplete.' });
     }
-    return res.json({ reply, reasoningPlan });
+    return res.json({ reply, extractedMemories: [] });
   } catch (error) {
     console.error('Kebo LLM request failed:', {
       status: error?.status,
       code: error?.code,
       message: error instanceof Error ? error.message : String(error),
     });
-    return res.json({
-      reply: "I hit a little snag just now. Give me another try in a moment — I’m still right here with you. 🌱",
-      reasoningPlan: localReasoningPlan(message, emotion, Array.isArray(relevantMemories) ? relevantMemories : []),
+    return res.status(error?.status === 429 ? 429 : 502).json({
+      error: error?.status === 429
+        ? 'Kebo is temporarily busy. Please wait a moment and try again.'
+        : 'Kebo could not generate a reply right now. Please try again shortly.',
     });
   }
 });

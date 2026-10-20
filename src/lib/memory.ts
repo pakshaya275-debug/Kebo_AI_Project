@@ -99,13 +99,56 @@ export function extractMemories(text: string): string[] {
 
 export function addMemories(existing: KeboMemory[], texts: string[]): KeboMemory[] {
   const next = [...existing];
-  for (const text of texts) {
-    if (next.some((memory) => memory.text.toLowerCase() === text.toLowerCase())) continue;
+  for (const rawText of texts) {
+    const text = rawText.trim().replace(/\\s+/g, ' ');
+    if (text.length < 6 || text.length > 220) continue;
+    const normalized = text.toLocaleLowerCase();
+    const exact = next.findIndex((memory) => memory.text.trim().toLocaleLowerCase() === normalized);
+    if (exact >= 0) {
+      next[exact] = { ...next[exact], lastUsedAt: Date.now() };
+      continue;
+    }
+
     const metadata = classifyMemory(text);
-    next.push({ id: `memory-${Date.now()}-${next.length}`, text, ...metadata, createdAt: Date.now(), lastUsedAt: Date.now() });
+    const subject = memorySubject(text, metadata.type);
+    if (subject) {
+      const conflictIndex = next.findIndex((memory) => {
+        const existingMetadata = classifyMemory(memory.text);
+        return memorySubject(memory.text, existingMetadata.type) === subject;
+      });
+      if (conflictIndex >= 0) next.splice(conflictIndex, 1);
+    }
+
+    const now = Date.now();
+    next.push({
+      id: `memory-${now}-${Math.random().toString(36).slice(2, 8)}`,
+      text,
+      ...metadata,
+      createdAt: now,
+      lastUsedAt: now,
+    });
   }
 
   return next.slice(-100);
+}
+
+function memorySubject(text: string, type: KeboMemory['type']): string | null {
+  const lower = text.toLowerCase();
+  if (/user's name is|wants to be called/.test(lower)) return 'profile:name';
+  if (/lives in/.test(lower)) return 'profile:location';
+
+  if (type === 'preference') {
+    const topic = /coffee|tea|drink|beverage|water/.test(lower) ? 'drink'
+      : /food|eat|meal|cuisine|pizza|fruit/.test(lower) ? 'food'
+        : /music|song|artist|band/.test(lower) ? 'music'
+          : /color|colour/.test(lower) ? 'color'
+            : /hobby|game|sport|reading|book|movie|film/.test(lower) ? 'hobby-media'
+              : /like|love|enjoy|prefer|dislike|hate|favorite|favourite/.test(lower) ? 'general'
+                : null;
+    return topic ? `preference:${topic}` : null;
+  }
+
+  return null;
 }
 
 function classifyMemory(text: string): Pick<KeboMemory, 'type' | 'importance' | 'confidence' | 'source'> {

@@ -378,7 +378,6 @@ export function useKebo() {
           const relevantMemories = memoryContext(memoriesRef.current, trimmed);
 
           let reply: { text: string; emotion: KeboState['emotion'] };
-          let reasoningPlan: KeboReasoningPlan | undefined;
 
           try {
             const response = await askKeboLLM({

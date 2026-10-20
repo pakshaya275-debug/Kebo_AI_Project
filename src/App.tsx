@@ -56,24 +56,37 @@ function App() {
     const latest = messages[messages.length - 1];
     if (!latest || latest.sender !== 'kebo' || latest.id === spokenVoiceMessageRef.current || latest.id === voiceBaselineMessageRef.current) return;
     spokenVoiceMessageRef.current = latest.id;
-    if (!('speechSynthesis' in window)) return;
-    const utterance = new SpeechSynthesisUtterance(latest.text);
-    const voices = window.speechSynthesis.getVoices();
-    utterance.lang = voice.language;
-    utterance.voice = voices.find((candidate) => candidate.lang.toLowerCase().startsWith(voice.language.toLowerCase().split('-')[0]) && /female|child|samantha|zira|aria|jenny|google/i.test(candidate.name))
-      || voices.find((candidate) => candidate.lang.toLowerCase().startsWith(voice.language.toLowerCase().split('-')[0]))
-      || null;
-    utterance.pitch = 1.5;
-    utterance.rate = 0.98;
-    utterance.volume = 0.9;
-    utterance.onstart = () => setIsSpeaking(true);
-    utterance.onend = () => setIsSpeaking(false);
-    utterance.onerror = () => setIsSpeaking(false);
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(utterance);
+    if (typeof window === 'undefined' || !('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') {
+      setIsSpeaking(false);
+      return;
+    }
+    try {
+      const utterance = new SpeechSynthesisUtterance(latest.text);
+      const voices = window.speechSynthesis.getVoices();
+      const languagePrefix = voice.language.toLowerCase().split('-')[0];
+      utterance.lang = voice.language;
+      utterance.voice = voices.find((candidate) => candidate.lang.toLowerCase().startsWith(languagePrefix) && /female|child|samantha|zira|aria|jenny|google/i.test(candidate.name))
+        || voices.find((candidate) => candidate.lang.toLowerCase().startsWith(languagePrefix))
+        || null;
+      utterance.pitch = 1.5;
+      utterance.rate = 0.98;
+      utterance.volume = 0.9;
+      utterance.onstart = () => setIsSpeaking(true);
+      utterance.onend = () => setIsSpeaking(false);
+      utterance.onerror = () => setIsSpeaking(false);
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(utterance);
+    } catch (speechError) {
+      console.warn('[Kebo] Speech synthesis unavailable:', speechError);
+      setIsSpeaking(false);
+    }
   }, [messages, voice.language]);
 
-  useEffect(() => () => window.speechSynthesis?.cancel(), []);
+  useEffect(() => () => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+  }, []);
 
   const moodPhrase = MOOD_PHRASES[state.emotion] ?? 'Existing in the moment.';
 

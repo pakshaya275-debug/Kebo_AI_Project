@@ -10,7 +10,7 @@ import {
 } from '../types/kebo';
 import { clamp, decayStats, deriveEmotion, resolveConversationEmotion, detectMessageEmotion } from '../lib/keboEngine';
 import { idleThought } from '../lib/mockAgent';
-import { analyzeKeboMessage, askKeboLLM, type KeboEmotionAnalysis, type KeboReasoningPlan } from '../lib/llmAgent';
+import { analyzeKeboMessage, askKeboLLM, type KeboEmotionAnalysis } from '../lib/llmAgent';
 import { addMemories, extractMemories, loadMemories, memoryContext, saveMemories, type KeboMemory } from '../lib/memory';
 import { clearRemoteMemories, loadRemoteMemories, saveRemoteMemories } from '../lib/supabaseMemory';
 
@@ -390,11 +390,12 @@ export function useKebo() {
               signal: controller.signal,
             });
             reply = { text: response.text, emotion: updatedState.emotion };
-            reasoningPlan = response.reasoningPlan;
-            if (reasoningPlan?.memoryToUse.length) {
-              const retrieved = new Set(relevantMemories);
-              const remembered = reasoningPlan.memoryToUse.find((memory) => retrieved.has(memory));
-              if (remembered) showThought(`Remembering: ${remembered}`, 3000);
+            if (response.extractedMemories.length) {
+              setMemories((existing) => {
+                const next = addMemories(existing, response.extractedMemories);
+                memoriesRef.current = next;
+                return next;
+              });
             }
           } catch (error) {
             if (isCancelled()) return;

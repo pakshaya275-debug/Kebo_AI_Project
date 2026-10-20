@@ -155,7 +155,7 @@ function classifyMemory(text: string): Pick<KeboMemory, 'type' | 'importance' | 
   const lower = text.toLowerCase();
   const type = /name is|called|lives in|has a|mentioned having/.test(lower)
     ? 'user_fact'
-    : /likes|dislikes|favorite|enjoys/.test(lower)
+    : /likes?|loves?|enjoys?|prefers?|dislikes?|hates?|favorite|favourite/.test(lower)
       ? 'preference'
       : /working on|building|project|goal|intends|plan/.test(lower)
         ? 'goal'

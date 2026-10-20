@@ -137,16 +137,20 @@ function memorySubject(text: string, type: KeboMemory['type']): string | null {
   if (/user's name is|wants to be called/.test(lower)) return 'profile:name';
   if (/lives in/.test(lower)) return 'profile:location';
 
-  if (type === 'preference') {
-    const topic = /coffee|tea|drink|beverage|water/.test(lower) ? 'drink'
-      : /food|eat|meal|cuisine|pizza|fruit/.test(lower) ? 'food'
-        : /music|song|artist|band/.test(lower) ? 'music'
-          : /color|colour/.test(lower) ? 'color'
-            : /hobby|game|sport|reading|book|movie|film/.test(lower) ? 'hobby-media'
-              : /like|love|enjoy|prefer|dislike|hate|favorite|favourite/.test(lower) ? 'general'
-                : null;
-    return topic ? `preference:${topic}` : null;
-  }
+  if (type !== 'preference') return null;
+
+  // Replace only preferences about the same recognizable subject.
+  // Unknown/general preferences are retained rather than risking deletion
+  // of an unrelated fact.
+  if (/coffee|tea|drink|beverage|water/.test(lower)) return 'preference:drink';
+  if (/food|eat|meal|cuisine|pizza|fruit/.test(lower)) return 'preference:food';
+  if (/music|song|artist|band/.test(lower)) return 'preference:music';
+  if (/color|colour/.test(lower)) return 'preference:color';
+  if (/book|reading|novel|author/.test(lower)) return 'preference:books';
+  if (/movie|film|cinema|tv show|series/.test(lower)) return 'preference:screen-media';
+  if (/game|gaming|video game/.test(lower)) return 'preference:games';
+  if (/sport|football|cricket|tennis|basketball/.test(lower)) return 'preference:sports';
+  if (/hobby|gardening|drawing|painting|photography/.test(lower)) return 'preference:hobbies';
 
   return null;
 }

@@ -145,7 +145,7 @@ export function appraiseMessage(raw: string): Appraisal {
   if (SELF_HARM.test(text)) {
     return base({
       kind: 'distress', userEmotion: 'sad', target: 'self', valence: 0, intensity: 1, confidence: 1,
-      keboEmotion: 'sad', safety: 'self_harm',
+      keboEmotion: 'calm', safety: 'self_harm',
       situation: 'The user may be in serious emotional danger. Respond with calm, warm care, take it seriously, and encourage reaching out to a trusted person or a local helpline.',
     });
   }
@@ -212,8 +212,8 @@ export function appraiseMessage(raw: string): Appraisal {
   if (hasNeg(ANXIETY_WORDS)) {
     return base({
       kind: 'distress', userEmotion: 'anxious', target: 'outside', valence: 0.1, intensity: intensityOf(text, 0.6), confidence: 0.85,
-      keboEmotion: 'anxious',
-      situation: 'The user is anxious or stressed. Kebo should be calming, concrete and supportive.',
+      keboEmotion: 'calm',
+      situation: 'The user is anxious or stressed. Kebo stays calm and attentive (it does not copy the anxiety) and is concrete and supportive.',
     });
   }
   if (hasNeg(ANGER_WORDS)) {
@@ -223,7 +223,7 @@ export function appraiseMessage(raw: string): Appraisal {
       kind: atKebo ? 'insult' : 'user_anger',
       userEmotion: 'angry', target: atKebo ? 'kebo' : atSelf ? 'self' : 'outside',
       valence: atKebo ? -0.6 : 0, intensity: intensityOf(text, 0.6), confidence: 0.8,
-      keboEmotion: atKebo ? 'sad' : 'anxious',
+      keboEmotion: atKebo ? 'sad' : 'calm',
       situation: atKebo
         ? 'The user says they are angry with Kebo. Kebo should listen and ask what went wrong.'
         : 'The user is angry about something else. Kebo should let them vent and stay calm; it is not the target.',
@@ -232,8 +232,8 @@ export function appraiseMessage(raw: string): Appraisal {
   if (hasNeg(DISTRESS_WORDS)) {
     return base({
       kind: 'distress', userEmotion: 'sad', target: /\b(my life|myself|my fault)\b/.test(text) ? 'self' : 'outside',
-      valence: 0.1, intensity: intensityOf(text, 0.6), confidence: 0.85, keboEmotion: 'sad',
-      situation: 'The user is sad or hurting. Kebo should stay with them gently, acknowledge the feeling, and not rush to fix it.',
+      valence: 0.1, intensity: intensityOf(text, 0.6), confidence: 0.85, keboEmotion: 'calm',
+      situation: 'The user is sad or hurting. Kebo stays calm and attentive rather than copying the sadness, acknowledges the feeling gently, and does not rush to fix it.',
     });
   }
   if (hasNeg(TIRED_WORDS)) {
@@ -297,7 +297,9 @@ export function refineWithAnalysis(
   if (!analysis || local.confidence >= 0.6) return local;
   const target = analysis.target;
   const hostile = analysis.emotion === 'angry' && target === 'kebo';
-  const keboEmotion: EmotionKey = hostile ? 'sad' : analysis.emotion === 'angry' ? 'anxious' : analysis.emotion;
+  // Kebo does not mirror the user's distress; it only shows its own hurt when it is the target.
+  const userNegative = analysis.emotion === 'sad' || analysis.emotion === 'anxious' || analysis.emotion === 'angry' || analysis.emotion === 'tired';
+  const keboEmotion: EmotionKey = hostile ? 'sad' : userNegative ? 'calm' : analysis.emotion;
   return {
     ...local,
     kind: hostile ? 'insult' : analysis.emotion === 'sad' || analysis.emotion === 'anxious' ? 'distress' : local.kind,

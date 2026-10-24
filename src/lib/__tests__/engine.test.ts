@@ -53,6 +53,14 @@ describe('emotion is state, not a label', () => {
     expect(applyAppraisal(sensitive, a, NOW).stats.happiness).toBeLessThan(applyAppraisal(thick, a, NOW).stats.happiness);
   });
 
+  it('a sad user does not drag Kebo into sadness, but does deepen the bond', () => {
+    const before = fresh();
+    const after = applyAppraisal(before, appraiseMessage('i am so sad today'), NOW);
+    expect(after.emotion).toBe('calm');
+    expect(after.stats.happiness).toBeGreaterThan(before.stats.happiness - 3);
+    expect(after.stats.bond).toBeGreaterThan(before.stats.bond);
+  });
+
   it('neutral messages follow vitals, not a keyword', () => {
     const tired = fresh({ stats: { ...DEFAULT_STATS, energy: 10 } });
     expect(applyAppraisal(tired, appraiseMessage('the bus was late again'), NOW).emotion).toBe('tired');

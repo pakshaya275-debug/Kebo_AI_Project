@@ -50,11 +50,13 @@ describe('appraisal: meaning, not keywords', () => {
     const a = kind('i am so sad today');
     expect(a.kind).toBe('distress');
     expect(a.target).not.toBe('kebo');
+    expect(a.keboEmotion).toBe('calm'); // Kebo stays attentive; it does not copy the user's sadness
   });
   it('user angry at something else is not aimed at Kebo', () => {
     const a = kind("i'm furious about my exam results");
     expect(a.kind).toBe('user_anger');
     expect(a.target).toBe('outside');
+    expect(a.keboEmotion).toBe('calm');
   });
   it('anxiety', () => expect(kind("i'm really nervous about tomorrow").kind).toBe('distress'));
   it('celebration', () => expect(kind('i passed my exam!').kind).toBe('celebration'));
@@ -69,6 +71,6 @@ describe('appraisal: meaning, not keywords', () => {
   it('safety flag for self-harm language', () => {
     const a = kind('i want to die');
     expect(a.safety).toBe('self_harm');
-    expect(a.keboEmotion).toBe('sad');
+    expect(a.keboEmotion).toBe('calm');
   });
 });

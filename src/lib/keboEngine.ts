@@ -104,8 +104,8 @@ function baseDelta(a: Appraisal): Delta {
     case 'reported_insult': return { happiness: -4, bond: 2.5, stimulation: 4, annoyance: 2 };
     case 'praise':          return { happiness: 10, bond: 3, annoyance: -15, energy: 4, stimulation: 3 };
     case 'apology':         return { annoyance: -25, happiness: 4, bond: 1.5 };
-    case 'distress':        return { happiness: -5, bond: 2, stimulation: 4, energy: -2 };
-    case 'user_anger':      return { happiness: -3, stimulation: 6, bond: 1 };
+    case 'distress':        return { happiness: -1.5, bond: 2.5, stimulation: 4, energy: -1 };
+    case 'user_anger':      return { happiness: -1, stimulation: 6, bond: 1.5 };
     case 'celebration':     return { happiness: 10, energy: 6, bond: 2.5, annoyance: -10, stimulation: 4 };
     case 'playful':         return { happiness: 9, energy: -3, stimulation: 9, bond: 3, annoyance: -12 };
     case 'question':        return { stimulation: 10, happiness: 2, bond: 1, annoyance: -4 };

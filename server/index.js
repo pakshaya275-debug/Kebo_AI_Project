@@ -101,22 +101,46 @@ app.get('/api/health', (_req, res) => {
   res.json({ ok: true, provider, configured, model });
 });
 
+const AUDIO_EXTENSIONS = { webm: 'webm', ogg: 'ogg', mp4: 'mp4', mpeg: 'mp3', mp3: 'mp3', wav: 'wav', flac: 'flac', m4a: 'm4a' };
+
+function describeTranscriptionFailure(error) {
+  const status = error?.status;
+  const detail = (error?.error?.message || error?.message || '').slice(0, 240);
+  if (status === 401 || status === 403) return { status: 502, message: 'Voice service key is missing or invalid. Check OPENAI_API_KEY on the server.', detail };
+  if (status === 404) return { status: 502, message: `Voice model not found. Check TRANSCRIPTION_MODEL (${process.env.TRANSCRIPTION_MODEL || 'whisper-large-v3-turbo'}).`, detail };
+  if (status === 413) return { status: 413, message: 'That recording is too long. Keep voice messages under a minute.', detail };
+  if (status === 429) return { status: 503, message: 'The voice service is busy right now. Please try again in a moment.', detail };
+  if (status === 400) return { status: 422, message: 'The audio format was not accepted. Try again, or use text chat.', detail };
+  return { status: 502, message: 'Kebo could not understand the recording.', detail };
+}
+
 app.post('/api/transcribe', rateLimit(20), upload.single('audio'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Audio is required.' });
+  if (req.file.size < 2000) {
+    return res.status(422).json({ error: 'That was too short to hear. Hold the button a little longer and speak.' });
+  }
+  // Browsers send mime types like "audio/webm;codecs=opus"; keep only the base type and matching extension.
+  const baseType = String(req.file.mimetype || 'audio/webm').split(';')[0].trim().toLowerCase();
+  const subtype = baseType.split('/')[1] || 'webm';
+  const extension = AUDIO_EXTENSIONS[subtype] || 'webm';
+  const mimeType = `audio/${subtype === 'mpeg' ? 'mpeg' : subtype}`;
   try {
-    const language = typeof req.body?.language === 'string' && req.body.language !== 'auto'
-      ? req.body.language.split('-')[0]
+    const language = typeof req.body?.language === 'string' && /^[a-zA-Z]{2,3}([-_][a-zA-Z]{2,4})?$/.test(req.body.language) && req.body.language.toLowerCase() !== 'auto'
+      ? req.body.language.split(/[-_]/)[0].toLowerCase()
       : undefined;
     const transcription = await client.audio.transcriptions.create({
-      file: await OpenAI.toFile(req.file.buffer, req.file.originalname || 'kebo-voice.webm', { type: req.file.mimetype }),
+      file: await OpenAI.toFile(req.file.buffer, `kebo-voice.${extension}`, { type: mimeType }),
       model: process.env.TRANSCRIPTION_MODEL || 'whisper-large-v3-turbo',
       ...(language ? { language } : {}),
       response_format: 'json',
     });
-    return res.json({ text: transcription.text?.trim() || '' });
+    const text = transcription.text?.trim() || '';
+    if (!text) return res.status(422).json({ error: 'No speech was detected. Try speaking a little louder, or use text chat.' });
+    return res.json({ text });
   } catch (error) {
-    console.error('Kebo transcription failed:', error);
-    return res.status(502).json({ error: 'Kebo could not understand the recording.' });
+    const failure = describeTranscriptionFailure(error);
+    console.error(`[Kebo] Transcription failed (${failure.status}; ${baseType}, ${req.file.size} bytes):`, failure.detail || error);
+    return res.status(failure.status).json({ error: failure.message });
   }
 });
 

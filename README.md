@@ -587,8 +587,7 @@ The exact technology stack may evolve, but the project is currently designed aro
 
 ### Frontend
 
-* Next.js
-* React
+* React + Vite (original plan named Next.js; see docs/PLAN_ALIGNMENT.md)
 * TypeScript
 * Tailwind CSS
 * shadcn/ui
@@ -638,7 +637,7 @@ The final technology choices will be made based on performance, cost, quality, a
 
 ## Phase 1 — 🌱 Product Foundation
 
-* [x] Next.js application
+* [x] React + Vite application (the original plan named Next.js; see `docs/PLAN_ALIGNMENT.md`)
 * [x] Kebo visual prototype
 * [x] Main navigation
 * [x] Home
@@ -655,65 +654,65 @@ The final technology choices will be made based on performance, cost, quality, a
 
 ## Phase 2 — ❤️ Living Kebo
 
-* [ ] Centralized Kebo state
-* [ ] Emotion engine
-* [ ] Personality Core
-* [ ] Mood-driven visual states
-* [ ] Time-based state changes
-* [ ] Activity system
-* [ ] Mock autonomous behavior
-* [ ] Relationship progression
-* [ ] Contextual thoughts
+* [x] Centralized Kebo state
+* [x] Emotion engine
+* [x] Personality Core
+* [x] Mood-driven visual states
+* [x] Time-based state changes
+* [x] Activity system
+* [x] Mock autonomous behavior
+* [x] Relationship progression
+* [x] Contextual thoughts
 * [ ] Improved character animation
 
 ---
 
 ## Phase 3 — 🧠 Conversational Intelligence
 
-* [ ] LLM integration
-* [ ] Context-aware responses
-* [ ] Streaming responses
-* [ ] Conversation orchestration
-* [ ] Prompt/context management
-* [ ] Safety controls
-* [ ] Error handling
-* [ ] Usage/cost controls
+* [x] LLM integration
+* [x] Context-aware responses
+* [ ] Streaming responses (not done: replies arrive in one piece)
+* [x] Conversation orchestration
+* [x] Prompt/context management
+* [x] Safety controls
+* [x] Error handling
+* [x] Usage/cost controls
 
 ---
 
 ## Phase 4 — 🧠 Long-Term Memory
 
-* [ ] Persistent user accounts
-* [ ] Conversation storage
-* [ ] Semantic memory
-* [ ] Episodic memory
-* [ ] Memory importance scoring
-* [ ] Memory retrieval
-* [ ] Memory consolidation
-* [ ] User-controlled memory management
+* [ ] Persistent user accounts (not done: device-based storage only)
+* [x] Conversation storage
+* [x] Semantic memory (lexical retrieval, not embeddings)
+* [x] Episodic memory
+* [x] Memory importance scoring
+* [x] Memory retrieval
+* [x] Memory consolidation
+* [x] User-controlled memory management
 
 ---
 
 ## Phase 5 — 🤖 Autonomous Kebo Agent
 
-* [ ] Agent decision engine
-* [ ] Autonomous action selection
-* [ ] Context-aware initiation
-* [ ] Scheduled evaluation
+* [x] Agent decision engine
+* [x] Autonomous action selection
+* [x] Context-aware initiation
+* [x] Scheduled evaluation
 * [ ] Background jobs
-* [ ] User-controlled autonomy
-* [ ] Notification system
-* [ ] Anti-spam behavior controls
+* [x] User-controlled autonomy
+* [x] Notification system
+* [x] Anti-spam behavior controls
 
 ---
 
 ## Phase 6 — 🔊 Voice
 
-* [ ] Speech-to-text
-* [ ] Text-to-speech
-* [ ] Voice conversations
+* [x] Speech-to-text
+* [x] Text-to-speech
+* [x] Voice conversations
 * [ ] Streaming audio
-* [ ] Voice personality
+* [x] Voice personality
 * [ ] Voice interruption handling
 
 ---
@@ -836,6 +835,10 @@ The goal is to explore what it takes to create an AI character that can **mainta
 Not yet implemented (future scope): token streaming, 3D avatar, interactive environment, authentication/multi-device accounts.
 
 **Demo tip:** Settings → *Demo speed* (30× time) and Activity → *Simulate 3 hours away* make loneliness and autonomous behaviour visible live.
+
+## Plan comparison
+
+See `docs/PLAN_ALIGNMENT.md` for what the original plan covered and what is still future work.
 
 ## Tests
 

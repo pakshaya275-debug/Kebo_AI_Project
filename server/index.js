@@ -20,9 +20,7 @@ const allowedOrigins = new Set(
 
 app.use(cors({
   origin(origin, callback) {
-    const isVercelPreview = typeof origin === 'string'
-      && origin.startsWith('https://')
-      && origin.endsWith('.vercel.app');
+    const isVercelPreview = typeof origin === 'string' && /^https:\/\/kebo-ai-project[a-z0-9-]*\.vercel\.app$/.test(origin);
     if (!origin || allowedOrigins.has(origin) || isVercelPreview) {
       callback(null, true);
       return;
@@ -32,8 +30,8 @@ app.use(cors({
   credentials: true,
 }));
 app.use(express.json({ limit: '128kb' }));
-const baseURL = process.env.OPENAI_BASE_URL || 'https://groq.com';
-const model = process.env.OPENAI_MODEL || 'llama-3.3-70b-specdec';
+const baseURL = process.env.OPENAI_BASE_URL || 'https://api.groq.com/openai/v1';
+const model = process.env.OPENAI_MODEL || 'llama-3.3-70b-versatile';
 const apiKey = process.env.OPENAI_API_KEY || 'openai-compatible';
 const client = new OpenAI({ apiKey, baseURL, timeout: 30_000, maxRetries: 0 });
 
@@ -99,7 +97,7 @@ app.get('/api/health', (_req, res) => {
   const provider = baseURL.includes('groq.com') ? 'groq' : baseURL.includes('1234') ? 'lm-studio' : 'openai-compatible';
   const configured = Boolean(process.env.OPENAI_API_KEY)
     && !process.env.OPENAI_API_KEY.startsWith('YOUR_');
-  res.json({ ok: true, provider, configured, model });
+  res.json({ ok: true, provider, configured, model, transcriptionModel: process.env.TRANSCRIPTION_MODEL || 'whisper-large-v3-turbo' });
 });
 
 const AUDIO_EXTENSIONS = { webm: 'webm', ogg: 'ogg', mp4: 'mp4', mpeg: 'mp3', mp3: 'mp3', wav: 'wav', flac: 'flac', m4a: 'm4a' };

@@ -1,12 +1,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { MessageCircle, Mic, Brain, BarChart3, Settings, Sun, Moon, ChevronDown, Send, Trash2, Clock, Star, ArrowRight } from 'lucide-react';
+import { MessageCircle, Mic, Brain, BarChart3, Settings, Sun, Moon, ChevronDown, Send, Star, ArrowRight, Heart, Activity as ActivityIcon } from 'lucide-react';
 import { KeboCreature } from './components/KeboCreature';
 import { useKebo } from './hooks/useKebo';
-import { EMOTIONS, type Message } from './types/kebo';
-import { type KeboMemory, retrieveMemories } from './lib/memory';
+import { EMOTIONS, PERSONALITY_TRAITS, type Message } from './types/kebo';
+import { lonelinessOf, type CareAction } from './lib/keboEngine';
+import type { KeboMemory } from './lib/memory';
+import { timeScaleOf } from './lib/settings';
+import { MemoryView } from './views/MemoryView';
+import { SettingsView } from './views/SettingsView';
+import { RelationshipView } from './views/RelationshipView';
+import { ActivityView } from './views/ActivityView';
 import { useSpeechRecognition, type SpeechRecognitionControls } from './hooks/useSpeechRecognition';
 
-type NavItem = 'chat' | 'voice' | 'memory' | 'stats' | 'settings';
+type NavItem = 'chat' | 'voice' | 'memory' | 'relationship' | 'activity' | 'stats' | 'settings';
+
+const PAGE_TITLES: Record<NavItem, string> = {
+  chat: 'Chat with Kebo',
+  voice: 'Voice Chat',
+  memory: 'Memory',
+  relationship: 'Relationship',
+  activity: 'Activity',
+  stats: 'Stats',
+  settings: 'Settings',
+};
 
 const SPEECH_LANGUAGES = [
   ['auto', 'Auto-detect'],
@@ -35,11 +51,19 @@ const MOOD_PHRASES: Record<string, string> = {
 };
 
 function App() {
-  const { state, messages, isThinking, memories, sendMessage, clearMessages, clearMemories } = useKebo();
+  const kebo = useKebo();
+  const {
+    state, messages, isThinking, memories, settings, backendStatus, thoughtBubble, activityLog, agentPreview,
+    sendMessage, clearMessages, clearMemories, care, updateSettings,
+  } = kebo;
   const [activeNav, setActiveNav] = useState<NavItem>('chat');
   const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const [darkMode, setDarkMode] = useState(true);
-  const [memoryQuery, setMemoryQuery] = useState('');
+  const [darkMode, setDarkMode] = useState(() => {
+    try { return localStorage.getItem('kebo-theme') !== 'light'; } catch { return true; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('kebo-theme', darkMode ? 'dark' : 'light'); } catch { /* ignore */ }
+  }, [darkMode]);
   const voiceSessionRef = useRef(false);
   const voiceBaselineMessageRef = useRef<string | null>(null);
   const spokenVoiceMessageRef = useRef<string | null>(null);
@@ -52,7 +76,7 @@ function App() {
   const voice = useSpeechRecognition(handleVoiceTranscript);
 
   useEffect(() => {
-    if (!voiceSessionRef.current) return;
+    if (!voiceSessionRef.current || !settings.voiceReplies) return;
     const latest = messages[messages.length - 1];
     if (!latest || latest.sender !== 'kebo' || latest.id === spokenVoiceMessageRef.current || latest.id === voiceBaselineMessageRef.current) return;
     spokenVoiceMessageRef.current = latest.id;
@@ -69,7 +93,7 @@ function App() {
         || voices.find((candidate) => candidate.lang.toLowerCase().startsWith(languagePrefix))
         || null;
       utterance.pitch = 1.5;
-      utterance.rate = 0.98;
+      utterance.rate = settings.voiceRate;
       utterance.volume = 0.9;
       utterance.onstart = () => setIsSpeaking(true);
       utterance.onend = () => setIsSpeaking(false);
@@ -80,7 +104,7 @@ function App() {
       console.warn('[Kebo] Speech synthesis unavailable:', speechError);
       setIsSpeaking(false);
     }
-  }, [messages, voice.language]);
+  }, [messages, voice.language, settings.voiceReplies, settings.voiceRate]);
 
   useEffect(() => () => {
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
@@ -89,11 +113,19 @@ function App() {
   }, []);
 
   const moodPhrase = MOOD_PHRASES[state.emotion] ?? 'Existing in the moment.';
+  const status = {
+    checking: { dot: 'bg-amber-400', title: 'Connecting…', body: 'Reaching Kebo’s AI backend.' },
+    online: { dot: 'bg-emerald-400 shadow-[0_0_8px_#34d399]', title: 'System Online', body: 'AI backend connected. Kebo is listening 🌱' },
+    unconfigured: { dot: 'bg-amber-400', title: 'Backend needs a key', body: 'No LLM API key is set on the server. Kebo is using its simple built-in brain.' },
+    offline: { dot: 'bg-rose-400', title: 'Offline mode', body: 'Backend unreachable. Kebo still works with its built-in brain and local memory.' },
+  }[backendStatus];
 
   const navItems: { key: NavItem; label: string; icon: React.ReactNode }[] = [
     { key: 'chat', label: 'Chat', icon: <MessageCircle size={20} /> },
     { key: 'voice', label: 'Voice Chat', icon: <Mic size={20} /> },
     { key: 'memory', label: 'Memory', icon: <Brain size={20} /> },
+    { key: 'relationship', label: 'Relationship', icon: <Heart size={20} /> },
+    { key: 'activity', label: 'Activity', icon: <ActivityIcon size={20} /> },
     { key: 'stats', label: 'Stats', icon: <BarChart3 size={20} /> },
     { key: 'settings', label: 'Settings', icon: <Settings size={20} /> },
   ];
@@ -103,11 +135,6 @@ function App() {
     return sorted.slice(0, 3);
   }, [memories]);
 
-  const allMemoriesFiltered = useMemo(() => {
-    const trimmed = memoryQuery.trim();
-    if (!trimmed) return [...memories].sort((a, b) => b.createdAt - a.createdAt);
-    return retrieveMemories(memories, trimmed).sort((a, b) => b.createdAt - a.createdAt);
-  }, [memories, memoryQuery]);
 
   return (
     <div className={`kebo-shell h-screen w-full text-slate-100 flex overflow-hidden font-sans ${darkMode ? 'kebo-dark' : 'kebo-light'}`} data-theme={darkMode ? 'dark' : 'light'}>
@@ -147,12 +174,10 @@ function App() {
         {/* System Status */}
         <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-4">
           <div className="flex items-center gap-2 mb-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399] animate-pulse" />
-            <span className="text-sm font-semibold text-slate-200">System Online</span>
+            <span className={`w-2.5 h-2.5 rounded-full ${status.dot} animate-pulse`} />
+            <span className="text-sm font-semibold text-slate-200">{status.title}</span>
           </div>
-          <p className="text-xs text-slate-500 leading-relaxed">
-            Kebo is connected and listening <span className="text-emerald-400">🌱</span>
-          </p>
+          <p className="text-xs text-slate-500 leading-relaxed">{status.body}</p>
         </div>
 
         {/* Quote */}
@@ -167,7 +192,7 @@ function App() {
       <div className="flex-1 flex flex-col min-w-0">
         {/* ─── Top Bar ─── */}
         <header className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-white/5 bg-[#071511]/40 backdrop-blur-sm">
-          <h2 className="text-xl font-bold text-slate-100">Chat with Kebo</h2>
+          <h2 className="text-xl font-bold text-slate-100">{PAGE_TITLES[activeNav]}</h2>
           <div className="flex items-center gap-3">
             <button
               onClick={() => setDarkMode((v) => !v)}
@@ -206,19 +231,42 @@ function App() {
         </header>
 
         {/* ─── Main Content Area (switches by nav) ─── */}
-        <div className="kebo-main-grid flex-1 flex min-h-0 overflow-hidden p-4 sm:p-6 gap-6">
+        <div className="kebo-main-grid flex-1 flex min-h-0 overflow-hidden p-3 pb-20 sm:p-6 md:pb-6 gap-6">
           {activeNav === 'memory' ? (
             <MemoryView
-              memories={allMemoriesFiltered}
-              total={memories.length}
-              query={memoryQuery}
-              onQuery={setMemoryQuery}
+              memories={memories}
+              settings={settings}
+              onDelete={kebo.deleteMemory}
+              onAdd={kebo.addManualMemory}
               onClear={clearMemories}
+              onEnable={() => updateSettings({ memoryEnabled: true })}
+            />
+          ) : activeNav === 'relationship' ? (
+            <RelationshipView state={state} />
+          ) : activeNav === 'activity' ? (
+            <ActivityView
+              entries={activityLog}
+              state={state}
+              settings={settings}
+              preview={agentPreview}
+              onClear={kebo.clearActivity}
+              onSimulateAway={kebo.simulateAway}
+              quietUntil={kebo.agentQuietUntil}
             />
           ) : activeNav === 'stats' ? (
             <StatsView state={state} messages={messages} />
           ) : activeNav === 'settings' ? (
-            <SettingsView onClearMessages={clearMessages} onClearMemories={clearMemories} />
+            <SettingsView
+              settings={settings}
+              personality={state.personality}
+              backendStatus={backendStatus}
+              onSettings={updateSettings}
+              onPersonality={kebo.setPersonality}
+              onClearMessages={clearMessages}
+              onClearMemories={clearMemories}
+              onReset={kebo.resetKebo}
+              onExport={kebo.exportData}
+            />
           ) : activeNav === 'voice' ? (
             <VoiceChatView voice={voice} messages={messages} isThinking={isThinking} isSpeaking={isSpeaking} state={state} />
           ) : (
@@ -231,12 +279,34 @@ function App() {
               recentMemories={recentMemories}
               moodPhrase={moodPhrase}
               onOpenMemory={() => setActiveNav('memory')}
+              onCare={care}
+              thoughtBubble={thoughtBubble}
+              timeScale={timeScaleOf(settings)}
             />
           )}
         </div>
       </div>
 
+      {/* Mobile bottom navigation (the sidebar is hidden below md) */}
+      <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 flex justify-around border-t border-white/10 bg-[#071511]/95 backdrop-blur px-1 pt-1.5 pb-[max(0.4rem,env(safe-area-inset-bottom))]" aria-label="Primary">
+        {navItems.map((item) => (
+          <button
+            key={item.key}
+            onClick={() => setActiveNav(item.key)}
+            aria-current={activeNav === item.key ? 'page' : undefined}
+            className={`flex flex-col items-center gap-0.5 px-1.5 py-1 rounded-lg text-[9px] font-medium ${activeNav === item.key ? 'text-emerald-300' : 'text-slate-500'}`}
+          >
+            <span className="[&>svg]:w-[18px] [&>svg]:h-[18px]">{item.icon}</span>
+            {item.label.replace(' Chat', '')}
+          </button>
+        ))}
+      </nav>
+
       <style>{`
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(-4px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
         @keyframes sparkle {
           0%, 100% { opacity: 0.15; transform: scale(0.8); }
           50% { opacity: 0.8; transform: scale(1.4); }
@@ -256,6 +326,9 @@ function DefaultChatLayout({
   recentMemories,
   moodPhrase,
   onOpenMemory,
+  onCare,
+  thoughtBubble,
+  timeScale,
 }: {
   messages: Message[];
   isThinking: boolean;
@@ -265,12 +338,34 @@ function DefaultChatLayout({
   recentMemories: KeboMemory[];
   moodPhrase: string;
   onOpenMemory: () => void;
+  onCare: (action: CareAction) => void;
+  thoughtBubble: string | null;
+  timeScale: number;
 }) {
   const emotion = EMOTIONS[state.emotion];
+  const loneliness = lonelinessOf(state, Date.now(), timeScale);
   return (
     <>
       {/* Chat Column */}
       <div className="flex-1 min-w-0 flex flex-col rounded-3xl border border-white/5 bg-white/[0.02] overflow-hidden min-h-0">
+        {/* Compact Kebo strip for screens without the right-hand panel */}
+        <div className="lg:hidden shrink-0 border-b border-white/5 p-3 space-y-3" style={{ background: `radial-gradient(ellipse at 15% 50%, ${emotion.color}22, transparent 60%)` }}>
+          <div className="flex items-center gap-3">
+            <div className="shrink-0 w-16 h-16 grid place-items-center">
+              <KeboCreature emotion={state.emotion} activity={state.activity} energy={state.stats.energy} vitals={state.stats} size={64} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-bold" style={{ color: emotion.color }}>{emotion.label} {emotion.emoji}</p>
+              <p className="text-[11px] text-slate-400 truncate">{thoughtBubble ? `💭 ${thoughtBubble}` : moodPhrase}</p>
+              <div className="mt-1.5 grid grid-cols-3 gap-2 text-[10px] text-slate-500">
+                <span>⚡ {Math.round(state.stats.energy)}%</span>
+                <span>🍃 {Math.round(state.stats.hunger)}%</span>
+                <span>👥 {Math.round(state.stats.bond)}%</span>
+              </div>
+            </div>
+          </div>
+          <CareButtons onCare={onCare} hunger={state.stats.hunger} energy={state.stats.energy} />
+        </div>
         <ChatMessages messages={messages} isThinking={isThinking} onSend={onSend} />
       </div>
 
@@ -309,6 +404,11 @@ function DefaultChatLayout({
             }}
           />
 
+          {thoughtBubble && (
+            <div className="absolute top-3 left-4 right-4 z-20 rounded-2xl border border-white/10 bg-slate-900/85 px-3.5 py-2 text-xs text-slate-200 shadow-lg backdrop-blur animate-[fadeIn_.3s_ease]">
+              💭 {thoughtBubble}
+            </div>
+          )}
           <div className="relative z-10">
             <KeboCreature
               emotion={state.emotion}
@@ -357,10 +457,17 @@ function DefaultChatLayout({
             <VitalBar label="Energy"      value={state.stats.energy}      color="#10b981" icon="⚡" />
             <VitalBar label="Happiness"   value={state.stats.happiness}   color="#f59e0b" icon="💚" />
             <VitalBar label="Bond"        value={state.stats.bond}        color="#ec4899" icon="👥" />
-            <VitalBar label="Fullness"    value={state.stats.hunger}      color="#22c55e" icon="🌱" warnLow />
+            <VitalBar label="Fullness"    value={state.stats.hunger}      color="#22c55e" icon="🍃" warnLow />
             <VitalBar label="Stimulation" value={state.stats.stimulation} color="#fbbf24" icon="⭐" />
             <VitalBar label="Annoyance"   value={state.stats.annoyance}   color="#ef4444" icon="😡" warnHigh />
+            <VitalBar label="Loneliness"  value={loneliness}              color="#a78bfa" icon="🫧" warnHigh />
           </div>
+        </div>
+
+        {/* Care */}
+        <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-4 shrink-0">
+          <h3 className="text-sm font-bold text-slate-100 mb-3">Take care of Kebo</h3>
+          <CareButtons onCare={onCare} hunger={state.stats.hunger} energy={state.stats.energy} />
         </div>
 
         {/* Recent Memory */}
@@ -674,135 +781,6 @@ function formatTime(ts: number): string {
 }
 
 /* ─── Full Memory View ─── */
-function MemoryView({
-  memories,
-  total,
-  query,
-  onQuery,
-  onClear,
-}: {
-  memories: KeboMemory[];
-  total: number;
-  query: string;
-  onQuery: (value: string) => void;
-  onClear: () => void;
-}) {
-  const [confirmClear, setConfirmClear] = useState(false);
-  return (
-    <div className="flex-1 min-w-0 flex flex-col rounded-3xl border border-white/5 bg-white/[0.02] overflow-hidden">
-      <div className="p-6 sm:p-8 border-b border-white/5">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h3 className="text-xl font-bold text-slate-100 mb-1.5 flex items-center gap-2">
-              <Brain className="text-emerald-400" size={22} />
-              Kebo's Memory
-            </h3>
-            <p className="text-sm text-slate-400 leading-relaxed">
-              Facts Kebo has learned about you and your conversations.
-              {total > 0 && (
-                <span className="ml-1 tabular-nums">
-                  Showing <span className="text-slate-200">{memories.length}</span> of{' '}
-                  <span className="text-slate-200">{total}</span> memories.
-                </span>
-              )}
-            </p>
-          </div>
-          <div className="flex gap-2">
-            {confirmClear ? (
-              <>
-                <button
-                  onClick={() => { onClear(); setConfirmClear(false); }}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl bg-rose-500 hover:bg-rose-400 text-white transition-colors"
-                >
-                  <Trash2 size={13} /> Confirm delete
-                </button>
-                <button
-                  onClick={() => setConfirmClear(false)}
-                  className="px-3.5 py-2 text-xs font-semibold rounded-xl border border-white/10 text-slate-300 hover:bg-white/5 transition-colors"
-                >
-                  Cancel
-                </button>
-              </>
-            ) : (
-              <button
-                onClick={() => setConfirmClear(true)}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl border border-white/10 text-slate-400 hover:text-rose-400 hover:border-rose-500/20 hover:bg-rose-500/5 transition-colors"
-              >
-                <Trash2 size={13} /> Clear all
-              </button>
-            )}
-          </div>
-        </div>
-        <div className="mt-5 relative">
-          <input
-            value={query}
-            onChange={(e) => onQuery(e.target.value)}
-            placeholder="Search memories (try 'name', 'like', 'project'…)"
-            className="w-full px-4 py-3 rounded-2xl bg-slate-800/50 border border-slate-700/60 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-emerald-500/40 transition-colors"
-          />
-        </div>
-      </div>
-      <div className="flex-1 min-h-0 overflow-y-auto p-6 sm:p-8 custom-scroll">
-        {memories.length === 0 ? (
-          <EmptyMemoryState hasSome={total > 0} />
-        ) : (
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {memories.map((m) => (
-              <article
-                key={m.id}
-                className="group relative p-4 rounded-2xl border border-white/5 bg-white/[0.015] hover:border-emerald-500/20 hover:bg-emerald-500/[0.03] transition-all"
-              >
-                <p className="text-sm text-slate-200 leading-relaxed break-words">
-                  {m.text}
-                </p>
-                <div className="mt-3 flex items-center justify-between text-[11px] text-slate-500 tabular-nums">
-                  <span className="inline-flex items-center gap-1.5">
-                    <Clock size={11} />
-                    {formatDateTime(m.createdAt)}
-                  </span>
-                  <span
-                    className={`inline-flex items-center gap-1 ${
-                      m.importance >= 0.7 ? 'text-amber-400/80' : 'text-slate-600'
-                    }`}
-                  >
-                    <Star size={10} fill={m.importance >= 0.7 ? 'currentColor' : 'none'} />
-                    {Math.round(m.importance * 100)}%
-                  </span>
-                </div>
-              </article>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function EmptyMemoryState({ hasSome }: { hasSome: boolean }) {
-  return (
-    <div className="h-full min-h-[300px] flex flex-col items-center justify-center text-center px-4">
-      <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 grid place-items-center text-3xl mb-4">
-        🧠
-      </div>
-      <h4 className="text-base font-bold text-slate-100 mb-1.5">
-        {hasSome ? 'No matching memories' : 'Kebo hasn\'t learned anything yet'}
-      </h4>
-      <p className="text-sm text-slate-500 leading-relaxed max-w-md">
-        {hasSome
-          ? 'Try a different search term.'
-          : 'Say things like "My name is Akshaya", "I like plants", or "I\'m building an AI project". Kebo stores what it learns here and uses it in conversation.'}
-      </p>
-    </div>
-  );
-}
-
-function formatDateTime(ts: number): string {
-  const d = new Date(ts);
-  const datePart = d.toLocaleDateString([], { month: 'short', day: 'numeric' });
-  const timePart = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
-  return `${datePart} · ${timePart}`;
-}
-
 /* ─── Stats View ─── */
 function StatsView({ state, messages }: { state: ReturnType<typeof useKebo>['state']; messages: Message[] }) {
   const messagesSent = messages.filter((m) => m.sender === 'user').length;
@@ -863,11 +841,7 @@ function StatsView({ state, messages }: { state: ReturnType<typeof useKebo>['sta
         <div className="grid gap-4 sm:grid-cols-2">
           {(
             [
-              { k: 'Openness', v: state.personality.openness },
-              { k: 'Conscientiousness', v: state.personality.conscientiousness },
-              { k: 'Extraversion', v: state.personality.extraversion },
-              { k: 'Agreeableness', v: state.personality.agreeableness },
-              { k: 'Neuroticism', v: state.personality.neuroticism },
+              ...PERSONALITY_TRAITS.map(({ key, label }) => ({ k: label, v: state.personality[key] })),
             ] as const
           ).map((t) => (
             <div key={t.k}>
@@ -912,118 +886,32 @@ function StatCard({ label, value, sub, color }: { label: string; value: string; 
   );
 }
 
-/* ─── Settings View ─── */
-function SettingsView({
-  onClearMessages,
-  onClearMemories,
-}: {
-  onClearMessages: () => void;
-  onClearMemories: () => void;
-}) {
-  const [didClearMsgs, setDidClearMsgs] = useState(false);
-  const [didClearMems, setDidClearMems] = useState(false);
-
+/* ─── Care buttons ─── */
+function CareButtons({ onCare, hunger, energy }: { onCare: (action: CareAction) => void; hunger: number; energy: number }) {
+  const actions: { key: CareAction; emoji: string; label: string; hot: boolean }[] = [
+    { key: 'feed', emoji: '🍎', label: 'Feed', hot: hunger < 35 },
+    { key: 'water', emoji: '💧', label: 'Water', hot: hunger < 35 },
+    { key: 'sun', emoji: '☀️', label: 'Sunlight', hot: energy < 40 },
+    { key: 'play', emoji: '🎾', label: 'Play', hot: false },
+    { key: 'rest', emoji: '😴', label: 'Rest', hot: energy < 25 },
+  ];
   return (
-    <div className="flex-1 min-w-0 flex flex-col overflow-y-auto custom-scroll">
-      <div className="rounded-3xl border border-white/5 bg-white/[0.02] p-6 sm:p-8 space-y-8 max-w-3xl">
-        <div>
-          <h3 className="text-xl font-bold text-slate-100 mb-1.5 flex items-center gap-2">
-            <Settings className="text-emerald-400" size={22} />
-            Settings
-          </h3>
-          <p className="text-sm text-slate-400 leading-relaxed">
-            Danger zone and general preferences. More settings coming soon.
-          </p>
-        </div>
-
-        <Section title="Data & Storage">
-          <DangerRow
-            title="Clear conversation"
-            description="Delete the current chat history. Kebo's memories and vitals remain unchanged."
-            buttonLabel={didClearMsgs ? 'Cleared' : 'Clear messages'}
-            buttonVariant="ghost"
-            onClick={() => {
-              onClearMessages();
-              setDidClearMsgs(true);
-              setTimeout(() => setDidClearMsgs(false), 1500);
-            }}
-          />
-          <DangerRow
-            title="Clear all memories"
-            description="Permanently erase every fact Kebo has learned. This cannot be undone."
-            buttonLabel={didClearMems ? 'Cleared' : 'Clear memories'}
-            buttonVariant="danger"
-            onClick={() => {
-              onClearMemories();
-              setDidClearMems(true);
-              setTimeout(() => setDidClearMems(false), 1500);
-            }}
-          />
-        </Section>
-
-        <Section title="About Kebo">
-          <div className="rounded-2xl border border-white/5 bg-white/[0.015] p-5">
-            <p className="text-sm text-slate-300 leading-relaxed">
-              <span className="text-emerald-400 font-bold">KEBO</span> is a plant-like AI companion with
-              persistent emotion, memory and personality. Every conversation shifts Kebo's mood, builds
-              your bond, and feeds into a growing memory graph of the things you tell it.
-            </p>
-            <dl className="mt-4 grid grid-cols-2 gap-3 text-xs text-slate-400">
-              <div><dt className="text-slate-500">Frontend</dt><dd className="text-slate-200">React + TS + Vite</dd></div>
-              <div><dt className="text-slate-500">Emotions</dt><dd className="text-slate-200">8 core states</dd></div>
-              <div><dt className="text-slate-500">Vitals</dt><dd className="text-slate-200">6 tracked</dd></div>
-              <div><dt className="text-slate-500">Memory</dt><dd className="text-slate-200">Fact extraction + retrieval</dd></div>
-            </dl>
-          </div>
-        </Section>
-      </div>
+    <div className="grid grid-cols-5 gap-2">
+      {actions.map((a) => (
+        <button
+          key={a.key}
+          onClick={() => onCare(a.key)}
+          className={`flex flex-col items-center gap-1 rounded-xl border py-2.5 text-[11px] font-semibold transition-colors ${a.hot ? 'border-amber-400/40 bg-amber-400/10 text-amber-200 animate-pulse' : 'border-white/5 bg-white/[0.02] text-slate-300 hover:bg-white/5 hover:border-emerald-500/20'}`}
+        >
+          <span className="text-lg leading-none">{a.emoji}</span>
+          {a.label}
+        </button>
+      ))}
     </div>
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-3">{title}</h4>
-      <div className="space-y-3">{children}</div>
-    </div>
-  );
-}
 
-function DangerRow({
-  title,
-  description,
-  buttonLabel,
-  buttonVariant,
-  onClick,
-}: {
-  title: string;
-  description: string;
-  buttonLabel: string;
-  buttonVariant: 'ghost' | 'danger';
-  onClick: () => void;
-}) {
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-white/5 bg-white/[0.015] p-4 hover:border-white/10 transition-colors">
-      <div className="min-w-0">
-        <p className="text-sm font-semibold text-slate-100">{title}</p>
-        <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">{description}</p>
-      </div>
-      <button
-        onClick={onClick}
-        className={
-          buttonVariant === 'danger'
-            ? 'px-4 py-2 text-xs font-semibold rounded-xl bg-rose-500 hover:bg-rose-400 text-white transition-colors'
-            : 'px-4 py-2 text-xs font-semibold rounded-xl border border-white/10 text-slate-300 hover:text-rose-400 hover:border-rose-500/20 hover:bg-rose-500/5 transition-colors'
-        }
-      >
-        {buttonLabel}
-      </button>
-    </div>
-  );
-}
-
-/* ─── Push-to-talk voice chat ─── */
 function VoiceChatView({ voice, messages, isThinking, isSpeaking, state }: { voice: SpeechRecognitionControls; messages: Message[]; isThinking: boolean; isSpeaking: boolean; state: ReturnType<typeof useKebo>['state'] }) {
   const latestReply = [...messages].reverse().find((message) => message.sender === 'kebo');
   return (

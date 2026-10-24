@@ -6,9 +6,31 @@ export interface KeboMemory {
   type: 'user_fact' | 'preference' | 'goal' | 'emotion' | 'event';
   importance: number;
   confidence: number;
-  source: 'user_message' | 'reasoning_plan';
+  source: 'user_message' | 'reasoning_plan' | 'manual';
   createdAt: number;
   lastUsedAt: number;
+  /** For upcoming events ("exam tomorrow"): the topic Kebo may follow up on later. */
+  topic?: string;
+  /** Set once Kebo has asked the user about this event. */
+  followedUpAt?: number;
+}
+
+export type MemoryKind = 'semantic' | 'episodic';
+
+/** Semantic = lasting facts/preferences/goals. Episodic = dated events and emotional moments. */
+export function memoryKind(memory: Pick<KeboMemory, 'type'>): MemoryKind {
+  return memory.type === 'event' || memory.type === 'emotion' ? 'episodic' : 'semantic';
+}
+
+const EVENT_TOPICS = 'exam|test|interview|presentation|viva|review|deadline|match|trip|surgery|appointment|submission|demo|quiz|competition|results?';
+const EVENT_WHEN = 'tomorrow|today|tonight|next week|this week|this weekend|on (?:mon|tues|wednes|thurs|fri|satur|sun)day|in \\d+ days?';
+
+function formatDay(ts = Date.now()): string {
+  return new Date(ts).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+export function eventTopic(text: string): string | undefined {
+  return /^Upcoming ([a-z]+)/i.exec(text)?.[1]?.toLowerCase();
 }
 
 const MEMORY_KEY = 'kebo-memories-v1';
@@ -76,6 +98,11 @@ export function extractMemories(text: string): string[] {
       format: (m) => m[1] ? `The user apologized to Kebo for ${m[1]?.trim()}.` : 'The user apologized to Kebo.' },
   ];
 
+  const eventA = new RegExp(`\\b(?:i (?:have|got|am having|'ve got)|my) (?:an? |the )?(${EVENT_TOPICS})\\b[^.?!]{0,40}?\\b(${EVENT_WHEN})`, 'i').exec(normalized);
+  const eventB = new RegExp(`\\b(${EVENT_WHEN})\\b[^.?!]{0,30}?\\b(${EVENT_TOPICS})\\b`, 'i').exec(normalized);
+  if (eventA) memories.push(`Upcoming ${eventA[1].toLowerCase()} (${eventA[2].toLowerCase()}) — mentioned on ${formatDay()}.`);
+  else if (eventB && /\b(i|my)\b/i.test(normalized)) memories.push(`Upcoming ${eventB[2].toLowerCase()} (${eventB[1].toLowerCase()}) — mentioned on ${formatDay()}.`);
+
   for (const { re, format } of patterns) {
     const match = normalized.match(re);
     if (match) {
@@ -124,6 +151,7 @@ export function addMemories(existing: KeboMemory[], texts: string[]): KeboMemory
       id: `memory-${now}-${Math.random().toString(36).slice(2, 8)}`,
       text,
       ...metadata,
+      ...(eventTopic(text) ? { topic: eventTopic(text) } : {}),
       createdAt: now,
       lastUsedAt: now,
     });
@@ -157,7 +185,9 @@ function memorySubject(text: string, type: KeboMemory['type']): string | null {
 
 function classifyMemory(text: string): Pick<KeboMemory, 'type' | 'importance' | 'confidence' | 'source'> {
   const lower = text.toLowerCase();
-  const type = /name is|called|lives in|has a|mentioned having/.test(lower)
+  const type = /^upcoming /.test(lower)
+    ? 'event'
+    : /name is|called|lives in|has a|mentioned having/.test(lower)
     ? 'user_fact'
     : /likes?|loves?|enjoys?|prefers?|dislikes?|hates?|favorite|favourite/.test(lower)
       ? 'preference'
@@ -207,4 +237,21 @@ export function memoryContext(memories: KeboMemory[], query: string): string[] {
 
 export function messagesToMemoryCandidates(messages: Message[]): string[] {
   return messages.flatMap((message) => message.sender === 'user' ? extractMemories(message.text) : []);
+}
+
+export function deleteMemory(memories: KeboMemory[], id: string): KeboMemory[] {
+  return memories.filter((memory) => memory.id !== id);
+}
+
+export function markFollowedUp(memories: KeboMemory[], id: string, now = Date.now()): KeboMemory[] {
+  return memories.map((memory) => (memory.id === id ? { ...memory, followedUpAt: now } : memory));
+}
+
+/** Upcoming-event memories Kebo has not asked about yet. */
+export function pendingFollowUps(memories: KeboMemory[]): KeboMemory[] {
+  return memories.filter((memory) => memory.type === 'event' && memory.topic && !memory.followedUpAt);
+}
+
+export function memoriesToText(memories: KeboMemory[]): string {
+  return memories.map((memory) => `- [${memoryKind(memory)}/${memory.type}] ${memory.text}`).join('\n');
 }

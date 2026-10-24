@@ -7,6 +7,7 @@ import OpenAI from 'openai';
 dotenv.config();
 
 const app = express();
+app.set('trust proxy', 1); // Render/Vercel sit behind a proxy; needed for per-IP rate limiting
 const port = Number(process.env.PORT || 3001);
 const allowedOrigins = new Set(
   [
@@ -55,52 +56,35 @@ async function createChatCompletion(params, label = 'LLM request') {
 }
 const upload = multer({ limits: { fileSize: 10 * 1024 * 1024 } });
 
-function localEmotionAnalysis(message) {
-  const text = message.toLowerCase().replace(/[’]/g, "'");
-  const mentionsKebo = /\b(kebo|you)\b/.test(text);
-  const selfDirected = /\b(myself|my life|my fault|i failed|i can't|i cannot|me)\b/.test(text);
+const EMOTIONS = ['joy', 'sad', 'angry', 'curious', 'calm', 'playful', 'tired', 'anxious'];
+const TARGETS = ['kebo', 'outside', 'self', 'unclear'];
 
-  if (/\b(don't|dont|do not|never)\s+(hate|dislike)\s+(you|kebo)\b/.test(text)) {
-    return { emotion: 'calm', intensity: 0.2, target: 'kebo', reason: 'The message explicitly negates anger toward Kebo.' };
-  }
-
-  if (/\b(hate|don't like|dont like|do not like|stupid|useless|idiot|shut up|annoying)\s+(you|kebo)\b/.test(text)) {
-    return { emotion: 'angry', intensity: 0.9, target: 'kebo', reason: 'The negative language is directly aimed at Kebo.' };
-  }
-
-  if (/\b(i am|i'm|im|i feel|feeling)\b.*\b(angry|mad|furious|frustrated|upset|hate)\b.*\b(myself|me|my life|my work|my marks|my exam|my project)\b/.test(text)
-    || /\b(angry|mad|furious|frustrated)\b.*\b(with|at|on)\s+(myself|me)\b/.test(text)) {
-    return { emotion: 'sad', intensity: 0.9, target: 'self', reason: 'The user is expressing strong frustration toward themselves or their situation.' };
-  }
-
-  if (/\b(scared|afraid|fear|terrified|nervous|worried|anxious|stress|stressed|overwhelmed|exhausted|tired|lonely|sad|unhappy|upset|crying|don't like my life|dont like my life)\b/.test(text)) {
-    return {
-      emotion: 'sad',
-      intensity: 0.85,
-      target: selfDirected ? 'self' : 'outside',
-      reason: 'The message contains an explicit distress signal.'
-    };
-  }
-
-  if (/\b(angry|mad|furious|frustrated)\b/.test(text)) {
-    return {
-      emotion: 'sad',
-      intensity: 0.8,
-      target: mentionsKebo ? 'kebo' : 'outside',
-      reason: 'The message contains strong frustration; target is inferred from context.'
-    };
-  }
-
-  if (/\b(are you|how are|what can|do you|can you|why|how|what|when|where)\b/.test(text) || text.trim().endsWith('?')) {
-    return { emotion: 'curious', intensity: 0.45, target: 'unclear', reason: 'The user is asking a question.' };
-  }
-
-  if (/\b(happy|excited|love|amazing|awesome|great|good|thanks|thank you|relieved|proud)\b/.test(text)) {
-    return { emotion: 'joy', intensity: 0.75, target: 'unclear', reason: 'The message contains a positive emotional signal.' };
-  }
-
-  return { emotion: 'calm', intensity: 0.2, target: 'unclear', reason: 'No strong emotional signal was found.' };
+// ── Tiny in-memory rate limiter (per IP) so a public deployment cannot burn the API quota ──
+const hits = new Map();
+function rateLimit(limit, windowMs = 60_000) {
+  return (req, res, next) => {
+    const key = `${req.ip}:${req.path}`;
+    const now = Date.now();
+    const recent = (hits.get(key) || []).filter((t) => now - t < windowMs);
+    if (recent.length >= limit) {
+      res.set('Retry-After', String(Math.ceil(windowMs / 1000)));
+      return res.status(429).json({ error: 'Kebo needs a moment to breathe. Please try again shortly.' });
+    }
+    recent.push(now);
+    hits.set(key, recent);
+    next();
+  };
 }
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, list] of hits) if (list.every((t) => now - t > 120_000)) hits.delete(key);
+}, 120_000).unref();
+
+const clip = (value, max) => (typeof value === 'string' ? value.trim().slice(0, max) : '');
+const cleanList = (value, count, max) => (Array.isArray(value) ? value.map((v) => clip(v, max)).filter(Boolean).slice(0, count) : []);
+
+const SELF_HARM = /\b(kill myself|end my life|end it all|want to die|wanna die|suicid\w*|self[- ]?harm|hurt myself|don't want to live|dont want to live|no reason to live|better off dead)\b/i;
+const CRISIS_REPLY = "I'm really glad you told me, and I'm taking it seriously. You don't have to carry this alone. Please reach out to someone you trust right now, or call a helpline — in India, Tele-MANAS is free at 14416 — or your local emergency number if you might act on these thoughts. I'm here with you too. 🌱";
 
 function isLikelyIncompleteReply(reply) {
   const trimmed = reply.trim();
@@ -117,7 +101,7 @@ app.get('/api/health', (_req, res) => {
   res.json({ ok: true, provider, configured, model });
 });
 
-app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
+app.post('/api/transcribe', rateLimit(20), upload.single('audio'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Audio is required.' });
   try {
     const language = typeof req.body?.language === 'string' && req.body.language !== 'auto'
@@ -136,20 +120,89 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
   }
 });
 
-app.post('/api/kebo-analyze', (req, res) => {
-  const { message } = req.body ?? {};
-  if (typeof message !== 'string' || !message.trim()) {
-    return res.status(400).json({ error: 'A message is required.' });
+app.post('/api/kebo-analyze', rateLimit(40), async (req, res) => {
+  const message = clip(req.body?.message, 500);
+  if (!message) return res.status(400).json({ error: 'A message is required.' });
+  try {
+    const response = await createChatCompletion({
+      model,
+      temperature: 0,
+      max_tokens: 80,
+      messages: [
+        {
+          role: 'system',
+          content: `Classify the emotional meaning of the user's message for a virtual plant-pet named Kebo. Return ONLY JSON: {"emotion":"joy|sad|angry|curious|calm|playful|tired|anxious","intensity":0.0,"target":"kebo|outside|self|unclear","reason":"short"}.
+"emotion" is what the USER feels. "target" is who/what the feeling is about: "kebo" only if the user is directly addressing Kebo; if the user is relaying what someone else said, the target is "outside". Negated statements ("I don't hate you") are not angry. If nothing emotional is present use calm with intensity 0.2.`,
+        },
+        { role: 'user', content: message },
+      ],
+    });
+    const raw = response.choices[0]?.message?.content || '';
+    const match = raw.match(/\{[\s\S]*\}/);
+    const parsed = match ? JSON.parse(match[0]) : {};
+    return res.json({
+      emotion: EMOTIONS.includes(parsed.emotion) ? parsed.emotion : 'calm',
+      intensity: Math.min(1, Math.max(0, Number(parsed.intensity) || 0.2)),
+      target: TARGETS.includes(parsed.target) ? parsed.target : 'unclear',
+      reason: clip(parsed.reason, 160),
+    });
+  } catch (error) {
+    console.warn('[Kebo] Emotion analysis unavailable:', error instanceof Error ? error.message : error);
+    return res.status(502).json({ error: 'Emotion analysis unavailable.' });
   }
-  // Emotion classification is deterministic and local, avoiding a second provider call.
-  return res.json(localEmotionAnalysis(message));
 });
 
-app.post('/api/kebo-chat', async (req, res) => {
-  const { message, keboState, emotion, recentConversation, relevantMemories } = req.body ?? {};
+app.post('/api/kebo-initiate', rateLimit(12), async (req, res) => {
+  const action = clip(req.body?.action, 30);
+  const reason = clip(req.body?.reason, 200);
+  const memory = clip(req.body?.memory, 220);
+  const keboState = req.body?.keboState ?? {};
+  const stats = keboState.stats || {};
+  const history = (Array.isArray(req.body?.recentConversation) ? req.body.recentConversation : [])
+    .filter((m) => m && (m.sender === 'user' || m.sender === 'kebo') && typeof m.text === 'string')
+    .slice(-6)
+    .map((m) => `${m.sender === 'user' ? 'User' : 'Kebo'}: ${clip(m.text, 200)}`)
+    .join('\n');
+  if (!action) return res.status(400).json({ error: 'An action is required.' });
+  try {
+    const response = await createChatCompletion({
+      model,
+      max_tokens: 90,
+      temperature: 0.7,
+      messages: [
+        {
+          role: 'system',
+          content: `You are Kebo, a small plant-like virtual companion. You are starting a conversation on your own, because your decision engine chose the action "${action}" (reason: ${reason || 'none'}). Write ONE short, natural message (max 30 words, at most one emoji) in Kebo's warm voice. Never be needy, guilt-tripping, or pushy. Never claim real consciousness.
+Your state: emotion ${keboState.emotion || 'calm'}, energy ${stats.energy ?? '?'}, happiness ${stats.happiness ?? '?'}, bond ${stats.bond ?? '?'}.
+${memory ? `Relevant memory to bring up naturally: "${memory}".` : ''}
+Recent chat:\n${history || '(none)'}
+Return only the message text.`,
+        },
+        { role: 'user', content: 'Write your message.' },
+      ],
+    });
+    const reply = response.choices[0]?.message?.content?.trim().replace(/^["']|["']$/g, '') || '';
+    if (!reply || response.choices[0]?.finish_reason === 'length') return res.status(502).json({ error: 'Empty initiation.' });
+    return res.json({ reply });
+  } catch (error) {
+    console.warn('[Kebo] Initiation failed:', error instanceof Error ? error.message : error);
+    return res.status(502).json({ error: 'Initiation failed.' });
+  }
+});
 
-  if (typeof message !== 'string' || !message.trim()) {
+app.post('/api/kebo-chat', rateLimit(30), async (req, res) => {
+  const { keboState, recentConversation } = req.body ?? {};
+  const message = clip(req.body?.message, 1000);
+  const emotion = EMOTIONS.includes(req.body?.emotion) ? req.body.emotion : 'calm';
+  const relevantMemories = cleanList(req.body?.relevantMemories, 6, 220);
+  const situation = clip(req.body?.situation, 500);
+
+  if (!message) {
     return res.status(400).json({ error: 'A message is required.' });
+  }
+  // Safety first: never route possible self-harm through persona/roleplay generation.
+  if (SELF_HARM.test(message)) {
+    return res.json({ reply: CRISIS_REPLY, extractedMemories: [] });
   }
   try {
     const conversation = Array.isArray(recentConversation)
@@ -165,7 +218,7 @@ app.post('/api/kebo-chat', async (req, res) => {
         .slice(-10)
         .map((item) => ({
           role: item.sender === 'user' ? 'user' : 'assistant',
-          content: item.text,
+          content: item.text.slice(0, 600),
         }));
     const stats = keboState?.stats || {};
     const personality = keboState?.personality || {};
@@ -221,7 +274,8 @@ Current simulated state:
 - Stimulation: ${stats.stimulation ?? 'unknown'} / 100
 - Annoyance: ${stats.annoyance ?? 'unknown'} / 100
 - Personality traits: ${JSON.stringify(personality)}
-- Relevant memories: ${JSON.stringify(Array.isArray(relevantMemories) ? relevantMemories : [])}
+- Relevant memories: ${JSON.stringify(relevantMemories)}
+- What the message means (from Kebo's own appraisal, trust this): ${situation || 'ordinary conversation'}
 Use the current simulated state as a style signal, not as a reason to ignore the user's actual message.
 Before answering, silently decide:
 1. What is the user feeling or trying to do?

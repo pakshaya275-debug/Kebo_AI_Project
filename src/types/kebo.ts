@@ -24,11 +24,13 @@ export interface Emotion {
 }
 
 export interface Personality {
-  openness: number;        // 0..1  curiosity / novelty seeking
-  conscientiousness: number; // 0..1  focus / orderliness
-  extraversion: number;    // 0..1  sociability / energy from interaction
-  agreeableness: number;   // 0..1  warmth / cooperation
-  neuroticism: number;     // 0..1  emotional reactivity / sensitivity
+  curiosity: number;    // 0..1  explores, asks questions, investigates
+  playfulness: number;  // 0..1  suggests games, energetic behaviour
+  sensitivity: number;  // 0..1  reacts strongly to emotional events
+  patience: number;     // 0..1  loneliness / annoyance build more slowly
+  sociability: number;  // 0..1  initiates interaction more often
+  courage: number;      // 0..1  less anxious, bolder exploration
+  affection: number;    // 0..1  bonds faster, warmer tone
 }
 
 export interface VitalStats {
@@ -48,14 +50,59 @@ export interface Message {
   text: string;
   emotion: EmotionKey;
   createdAt: number;
+  /** True when Kebo started this message on its own (agent), not as a reply. */
+  autonomous?: boolean;
+}
+
+export interface Milestone {
+  id: string;
+  label: string;
+  at: number;
+}
+
+export interface RelationshipState {
+  firstMetAt: number;
+  totalMessages: number;
+  positiveInteractions: number;
+  negativeInteractions: number;
+  comfortCount: number;
+  careCount: number;
+  streakDays: number;
+  lastActiveDay: string; // YYYY-MM-DD (local)
+  milestones: Milestone[];
 }
 
 export interface KeboState {
   emotion: EmotionKey;
+  /** Epoch ms until which the conversational emotion pulse is held; afterwards emotion follows vitals. */
+  emotionUntil: number;
   stats: VitalStats;
   personality: Personality;
   activity: Activity;
   lastInteraction: number;
+  /** Last time the user actually spoke (lastInteraction is also bumped by passive ticks). */
+  lastUserMessageAt: number;
+  relationship: RelationshipState;
+}
+
+export type AgentActionType =
+  | 'WAIT'
+  | 'SEND_MESSAGE'
+  | 'ASK_QUESTION'
+  | 'REQUEST_ATTENTION'
+  | 'PLAY'
+  | 'EXPLORE'
+  | 'REST'
+  | 'REFERENCE_MEMORY'
+  | 'CHANGE_ACTIVITY';
+
+export interface ActivityEntry {
+  id: string;
+  at: number;
+  kind: 'autonomous' | 'care' | 'emotion' | 'memory' | 'system';
+  action?: AgentActionType;
+  text: string;
+  reason?: string;
 }
 
 export type Activity =
@@ -79,12 +126,38 @@ export const EMOTIONS: Record<EmotionKey, Emotion> = {
 };
 
 export const DEFAULT_PERSONALITY: Personality = {
-  openness: 0.72,
-  conscientiousness: 0.55,
-  extraversion: 0.6,
-  agreeableness: 0.8,
-  neuroticism: 0.35,
+  curiosity: 0.82,
+  playfulness: 0.75,
+  sensitivity: 0.68,
+  patience: 0.42,
+  sociability: 0.61,
+  courage: 0.57,
+  affection: 0.8,
 };
+
+export const PERSONALITY_TRAITS: { key: keyof Personality; label: string; hint: string }[] = [
+  { key: 'curiosity', label: 'Curiosity', hint: 'Explores, asks questions, starts conversations' },
+  { key: 'playfulness', label: 'Playfulness', hint: 'Suggests games and acts energetic' },
+  { key: 'sensitivity', label: 'Sensitivity', hint: 'Reacts more strongly to emotional moments' },
+  { key: 'patience', label: 'Patience', hint: 'Loneliness and annoyance build more slowly' },
+  { key: 'sociability', label: 'Sociability', hint: 'Reaches out to you more often' },
+  { key: 'courage', label: 'Courage', hint: 'Less anxious, bolder when exploring' },
+  { key: 'affection', label: 'Affection', hint: 'Bonds faster and sounds warmer' },
+];
+
+export function createRelationship(now = Date.now()): RelationshipState {
+  return {
+    firstMetAt: now,
+    totalMessages: 0,
+    positiveInteractions: 0,
+    negativeInteractions: 0,
+    comfortCount: 0,
+    careCount: 0,
+    streakDays: 0,
+    lastActiveDay: '',
+    milestones: [],
+  };
+}
 
 export const DEFAULT_STATS: VitalStats = {
   energy: 78,

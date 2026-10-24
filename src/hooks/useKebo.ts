@@ -3,212 +3,217 @@ import {
   DEFAULT_PERSONALITY,
   DEFAULT_STATS,
   EMOTIONS,
+  PERSONALITY_TRAITS,
+  createRelationship,
+  type ActivityEntry,
   type Activity,
   type KeboState,
   type Message,
-  type VitalStats,
+  type Personality,
 } from '../types/kebo';
-import { clamp, decayStats, deriveEmotion, resolveConversationEmotion, detectMessageEmotion } from '../lib/keboEngine';
-import { idleThought } from '../lib/mockAgent';
-import { analyzeKeboMessage, askKeboLLM, type KeboEmotionAnalysis } from '../lib/llmAgent';
-import { addMemories, extractMemories, loadMemories, memoryContext, saveMemories, type KeboMemory } from '../lib/memory';
+import {
+  applyAppraisal,
+  applyCare,
+  decayStats,
+  deriveEmotion,
+  updateRelationship,
+  type CareAction,
+} from '../lib/keboEngine';
+import { appraiseMessage, refineWithAnalysis, type Appraisal } from '../lib/appraisal';
+import { activityForAction, ambientText, composeAutonomousText, decideAction, MESSAGE_ACTIONS, type AgentDecision } from '../lib/agent';
+import { mockAgentRespond } from '../lib/mockAgent';
+import {
+  analyzeKeboMessage,
+  askKeboLLM,
+  checkBackend,
+  composeInitiatedMessage,
+  type BackendStatus,
+} from '../lib/llmAgent';
+import {
+  addMemories,
+  deleteMemory as removeMemory,
+  extractMemories,
+  loadMemories,
+  markFollowedUp,
+  memoryContext,
+  saveMemories,
+  type KeboMemory,
+} from '../lib/memory';
 import { clearRemoteMemories, loadRemoteMemories, saveRemoteMemories } from '../lib/supabaseMemory';
+import { loadSettings, saveSettings, timeScaleOf, type KeboSettings } from '../lib/settings';
 
-const STORAGE_KEY = 'kebo-state-v1';
-const DECAY_TICK_MS = 15_000;
-const IDLE_THOUGHT_MS = 45_000;
-const THINK_DELAY_MS = 250;
+const STATE_KEY = 'kebo-state-v2';
+const LEGACY_STATE_KEY = 'kebo-state-v1';
+const MESSAGES_KEY = 'kebo-messages-v1';
+const ACTIVITY_KEY = 'kebo-activity-v1';
+const AGENT_KEY = 'kebo-agent-v1';
 
-interface ConversationResult {
-  stats: VitalStats;
-  emotion: KeboState['emotion'];
-  derivedEmotion: KeboState['emotion'];
-  messageEmotion: KeboState['emotion'];
-}
+const TICK_MS = 15_000;
+const AGENT_TICK_MS = 10_000;
+const QUIET_MS = 30 * 60_000;
+const ANALYSIS_TIMEOUT_MS = 3_000;
+const MAX_MESSAGES = 200;
+const MAX_ACTIVITY = 120;
 
-function isValidState(value: unknown): value is KeboState {
-  if (!value || typeof value !== 'object') return false;
-  const candidate = value as Partial<KeboState>;
-  const stats = candidate.stats;
-  const personality = candidate.personality;
-  const statKeys = ['energy', 'happiness', 'bond', 'hunger', 'stimulation', 'annoyance'] as const;
-  const personalityKeys = ['openness', 'conscientiousness', 'extraversion', 'agreeableness', 'neuroticism'] as const;
-  const activities: Activity[] = ['idle', 'talking', 'thinking', 'resting', 'playing', 'feeding', 'exploring'];
-  if (!stats || !personality || typeof candidate.lastInteraction !== 'number') return false;
-  return Number.isFinite(candidate.lastInteraction)
-    && typeof candidate.emotion === 'string'
-    && candidate.emotion in EMOTIONS
-    && typeof candidate.activity === 'string'
-    && activities.includes(candidate.activity as Activity)
-    && statKeys.every((key) => Number.isFinite(stats[key]))
-    && personalityKeys.every((key) => Number.isFinite(personality[key]));
-}
+let counter = 0;
+const newId = (prefix = 'm') => `${prefix}-${Date.now()}-${counter++}`;
 
-function loadState(): KeboState {
+/* ───────────────────────────── Persistence ───────────────────────────── */
+
+function readJson<T>(key: string): T | null {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed: unknown = JSON.parse(raw);
-      if (!isValidState(parsed)) throw new Error('Invalid Kebo state');
-      const elapsed = Math.max(0, Date.now() - parsed.lastInteraction);
-      let restoredStats = decayStats(parsed.stats, elapsed);
-
-      // Older builds could drain energy/happiness to ~0 and leave Kebo stuck
-      // in the tired state. Recover that clearly broken persisted state once.
-      if (restoredStats.energy <= 5 && restoredStats.happiness <= 5) {
-        restoredStats = {
-          ...restoredStats,
-          energy: 72,
-          happiness: 68,
-          stimulation: Math.max(restoredStats.stimulation, 45),
-          annoyance: Math.min(restoredStats.annoyance, 20),
-        };
-      }
-      const decayed = restoredStats;
-      const now = Date.now();
-      return {
-        ...parsed,
-        stats: decayed,
-        emotion: parsed.emotion,
-        activity: 'idle',
-        lastInteraction: now,
-      };
-    }
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : null;
   } catch {
-    /* ignore */
+    return null;
   }
+}
+
+function writeJson(key: string, value: unknown) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* storage full / disabled */ }
+}
+
+function isNum(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+/** Accepts any stored personality (including the old Big-Five shape) and returns the 7-trait model. */
+function migratePersonality(value: unknown): Personality {
+  const candidate = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>;
+  const out = { ...DEFAULT_PERSONALITY };
+  for (const { key } of PERSONALITY_TRAITS) {
+    if (isNum(candidate[key])) out[key] = Math.min(1, Math.max(0, candidate[key] as number));
+  }
+  return out;
+}
+
+function freshState(now = Date.now()): KeboState {
   return {
     emotion: deriveEmotion(DEFAULT_STATS, DEFAULT_PERSONALITY),
-    stats: DEFAULT_STATS,
-    personality: DEFAULT_PERSONALITY,
+    emotionUntil: 0,
+    stats: { ...DEFAULT_STATS },
+    personality: { ...DEFAULT_PERSONALITY },
     activity: 'idle',
-    lastInteraction: Date.now(),
+    lastInteraction: now,
+    lastUserMessageAt: now,
+    relationship: createRelationship(now),
   };
 }
 
-let msgCounter = 0;
-const newId = () => `m-${Date.now()}-${msgCounter++}`;
+function loadState(timeScale: number): KeboState {
+  const now = Date.now();
+  const stored = readJson<Partial<KeboState>>(STATE_KEY) ?? readJson<Partial<KeboState>>(LEGACY_STATE_KEY);
+  if (!stored || typeof stored !== 'object' || !stored.stats) return freshState(now);
 
-/**
- * Pure function: given current state + message analysis, returns NEW stats + emotion.
- * Does NOT call setState — so callers receive the full updated state synchronously,
- * eliminating the stale-state race when building the LLM prompt.
- */
-export function computeConversationImpact(
-  prev: KeboState,
-  intensity: number,
-  messageText: string,
-  analysis?: KeboEmotionAnalysis
-): ConversationResult {
-  const stats = { ...prev.stats };
-  // Make each meaningful message produce a visible but bounded state change.
-  // The LLM may return a low intensity, so we apply a small floor for UI feedback.
-  const intensityFactor = Math.max(0.65, Math.min(1, intensity * 1.4));
+  const base = freshState(now);
+  const statKeys = ['energy', 'happiness', 'bond', 'hunger', 'stimulation', 'annoyance'] as const;
+  const stats = { ...base.stats };
+  for (const key of statKeys) if (isNum(stored.stats[key])) stats[key] = stored.stats[key];
 
-  // A normal conversation should not drain Kebo's energy or max out
-  // stimulation/bond after only a few messages. Each emotion adds its own
-  // small, meaningful adjustment instead.
-  stats.stimulation = clamp(stats.stimulation + 2 * intensityFactor);
-  stats.bond = clamp(stats.bond + 0.6 * intensityFactor);
-
-  const decision = resolveConversationEmotion(
-    messageText,
-    analysis,
-    stats,
-    prev.personality,
-  );
-  const messageEmotion = decision.messageEmotion;
-  const targetIsKebo = decision.target === 'kebo';
-
-  switch (messageEmotion) {
-    case 'joy':
-      stats.happiness = clamp(stats.happiness + 12 * intensityFactor);
-      stats.energy = clamp(stats.energy + 8 * intensityFactor);
-      stats.stimulation = clamp(stats.stimulation + 4 * intensityFactor);
-      stats.bond = clamp(stats.bond + 3 * intensityFactor);
-      stats.annoyance = clamp(stats.annoyance - 18 * intensityFactor);
-      break;
-    case 'angry':
-      stats.happiness = clamp(stats.happiness - 14 * intensityFactor);
-      stats.energy = clamp(stats.energy - 8 * intensityFactor);
-      stats.stimulation = clamp(stats.stimulation + 10 * intensityFactor);
-      stats.annoyance = clamp(stats.annoyance + (targetIsKebo ? 28 : 16) * intensityFactor);
-      if (targetIsKebo) stats.bond = clamp(stats.bond - 4 * intensityFactor);
-      break;
-    case 'sad':
-      stats.happiness = clamp(stats.happiness - 12 * intensityFactor);
-      stats.energy = clamp(stats.energy - 5 * intensityFactor);
-      stats.stimulation = clamp(stats.stimulation + 4 * intensityFactor);
-      stats.bond = clamp(stats.bond + 2 * intensityFactor);
-      stats.annoyance = clamp(stats.annoyance - 4 * intensityFactor);
-      break;
-    case 'playful':
-      stats.happiness = clamp(stats.happiness + 10 * intensityFactor);
-      stats.energy = clamp(stats.energy - 4 * intensityFactor);
-      stats.stimulation = clamp(stats.stimulation + 10 * intensityFactor);
-      stats.bond = clamp(stats.bond + 4 * intensityFactor);
-      stats.annoyance = clamp(stats.annoyance - 15 * intensityFactor);
-      break;
-    case 'curious':
-      stats.stimulation = clamp(stats.stimulation + 14 * intensityFactor);
-      stats.energy = clamp(stats.energy + 3 * intensityFactor);
-      stats.happiness = clamp(stats.happiness + 4 * intensityFactor);
-      stats.bond = clamp(stats.bond + 2 * intensityFactor);
-      stats.annoyance = clamp(stats.annoyance - 8 * intensityFactor);
-      break;
-    case 'anxious':
-      stats.happiness = clamp(stats.happiness - 7 * intensityFactor);
-      stats.energy = clamp(stats.energy - 5 * intensityFactor);
-      stats.stimulation = clamp(stats.stimulation + 10 * intensityFactor);
-      stats.bond = clamp(stats.bond + 1 * intensityFactor);
-      break;
-    case 'tired':
-      stats.happiness = clamp(stats.happiness - 3 * intensityFactor);
-      stats.energy = clamp(stats.energy - 10 * intensityFactor);
-      stats.stimulation = clamp(stats.stimulation - 5 * intensityFactor);
-      break;
-    case 'calm':
-    default:
-      stats.happiness = clamp(stats.happiness + 3 * intensityFactor);
-      stats.energy = clamp(stats.energy + 4 * intensityFactor);
-      stats.stimulation = clamp(stats.stimulation + 3 * intensityFactor);
-      stats.bond = clamp(stats.bond + 1.5 * intensityFactor);
-      stats.annoyance = clamp(stats.annoyance - 8 * intensityFactor);
-      break;
+  const lastInteraction = isNum(stored.lastInteraction) ? stored.lastInteraction : now;
+  // Catch up on time away (Kebo got hungrier, less stimulated, calmer...).
+  let restored = decayStats(stats, Math.max(0, now - lastInteraction), timeScale);
+  // Rescue states broken by older builds (everything drained to ~0).
+  if (restored.energy <= 5 && restored.happiness <= 5) {
+    restored = { ...restored, energy: 72, happiness: 60, stimulation: Math.max(restored.stimulation, 45), annoyance: Math.min(restored.annoyance, 20) };
   }
 
-  const derivedEmotion = deriveEmotion(stats, prev.personality);
+  const personality = migratePersonality(stored.personality);
+  const relationship = { ...createRelationship(isNum(stored.relationship?.firstMetAt) ? stored.relationship.firstMetAt : now), ...(stored.relationship ?? {}) };
+  if (!Array.isArray(relationship.milestones)) relationship.milestones = [];
 
-  // The latest explicit message controls the visible emotion for this
-  // interaction. Background vitals control mood only for neutral messages.
-  const emotion = decision.explicit ? decision.emotion : derivedEmotion;
-
-  return { stats, emotion, derivedEmotion, messageEmotion };
+  return {
+    emotion: deriveEmotion(restored, personality),
+    emotionUntil: 0,
+    stats: restored,
+    personality,
+    activity: 'idle',
+    lastInteraction: now,
+    lastUserMessageAt: isNum(stored.lastUserMessageAt) ? stored.lastUserMessageAt : lastInteraction,
+    relationship,
+  };
 }
 
-export function useKebo() {
-  const [state, setState] = useState<KeboState>(loadState);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [isThinking, setIsThinking] = useState(false);
-  const [memories, setMemories] = useState<KeboMemory[]>(loadMemories);
-  const [thoughtBubble, setThoughtBubble] = useState<string | null>(null);
+function loadMessages(): Message[] {
+  const stored = readJson<Message[]>(MESSAGES_KEY);
+  if (!Array.isArray(stored)) return [];
+  return stored
+    .filter((m) => m && (m.sender === 'user' || m.sender === 'kebo') && typeof m.text === 'string' && isNum(m.createdAt))
+    .map((m) => ({ ...m, emotion: m.emotion in EMOTIONS ? m.emotion : 'calm' }))
+    .slice(-MAX_MESSAGES);
+}
 
-  const thoughtTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const thinkTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const activityTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const requestId = useRef(0);
-  const abortController = useRef<AbortController | null>(null);
+interface AgentRuntime {
+  lastAutonomousMessageAt: number;
+  lastAutonomousActionAt: number;
+  unansweredAutonomous: number;
+  quietUntil: number;
+}
+
+function loadAgentRuntime(): AgentRuntime {
+  const stored = readJson<Partial<AgentRuntime>>(AGENT_KEY) ?? {};
+  return {
+    lastAutonomousMessageAt: isNum(stored.lastAutonomousMessageAt) ? stored.lastAutonomousMessageAt : Date.now(),
+    lastAutonomousActionAt: isNum(stored.lastAutonomousActionAt) ? stored.lastAutonomousActionAt : 0,
+    unansweredAutonomous: isNum(stored.unansweredAutonomous) ? stored.unansweredAutonomous : 0,
+    quietUntil: isNum(stored.quietUntil) ? stored.quietUntil : 0,
+  };
+}
+
+function welcomeMessage(state: KeboState, memories: KeboMemory[], returning: boolean): Message {
+  const name = memories.find((m) => /name is|called/i.test(m.text))?.text.match(/(?:is|called) ([^.]+)\./i)?.[1];
+  const text = returning
+    ? `Welcome back${name ? `, ${name}` : ''}! 🌱 I missed you. ${state.stats.hunger < 30 ? "I'm a little hungry, though." : 'How have you been?'}`
+    : "Hi! I'm Kebo 🌱 — a little plant who remembers, feels, and grows with you. What should I call you?";
+  return { id: newId(), sender: 'kebo', text, emotion: returning ? 'joy' : 'curious', createdAt: Date.now() };
+}
+
+const CARE_LABELS: Record<CareAction, { log: string; reply: string }> = {
+  feed: { log: 'You fed Kebo.', reply: 'Mmm, thank you! That hit the spot. 🌱' },
+  water: { log: 'You watered Kebo.', reply: "Ahh, cool and fresh — thank you! 💧" },
+  sun: { log: 'You moved Kebo into the sunlight.', reply: 'Warm sunshine… I feel so awake! ☀️' },
+  play: { log: 'You played with Kebo.', reply: "That was fun! Again later? 🍃" },
+  rest: { log: 'You let Kebo rest.', reply: "Zzz… thanks for letting me rest a bit. 😴" },
+};
+
+/* ──────────────────────────────── Hook ──────────────────────────────── */
+
+export function useKebo() {
+  const [settings, setSettingsState] = useState<KeboSettings>(loadSettings);
+  const [state, setState] = useState<KeboState>(() => loadState(timeScaleOf(loadSettings())));
+  const [messages, setMessages] = useState<Message[]>(loadMessages);
+  const [memories, setMemories] = useState<KeboMemory[]>(loadMemories);
+  const [activityLog, setActivityLog] = useState<ActivityEntry[]>(() => readJson<ActivityEntry[]>(ACTIVITY_KEY) ?? []);
+  const [isThinking, setIsThinking] = useState(false);
+  const [thoughtBubble, setThoughtBubble] = useState<string | null>(null);
+  const [backendStatus, setBackendStatus] = useState<BackendStatus>('checking');
+
   const stateRef = useRef(state);
   const messagesRef = useRef(messages);
   const memoriesRef = useRef(memories);
+  const settingsRef = useRef(settings);
+  const backendRef = useRef<BackendStatus>('checking');
+  const agentRef = useRef<AgentRuntime>(loadAgentRuntime());
+  const activityUntil = useRef(0);
+  const agentBusy = useRef(false);
+  const requestId = useRef(0);
+  const abortController = useRef<AbortController | null>(null);
+  const thoughtTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const remoteMemoriesLoaded = useRef(false);
 
   useEffect(() => {
     stateRef.current = state;
     messagesRef.current = messages;
     memoriesRef.current = memories;
-  }, [state, messages, memories]);
+    settingsRef.current = settings;
+    backendRef.current = backendStatus;
+  }, [state, messages, memories, settings, backendStatus]);
 
+  /* ── Persistence ── */
+  useEffect(() => { writeJson(STATE_KEY, state); }, [state]);
+  useEffect(() => { writeJson(MESSAGES_KEY, messages.slice(-MAX_MESSAGES)); }, [messages]);
+  useEffect(() => { writeJson(ACTIVITY_KEY, activityLog.slice(0, MAX_ACTIVITY)); }, [activityLog]);
+  useEffect(() => { saveSettings(settings); }, [settings]);
   useEffect(() => {
     saveMemories(memories);
     if (remoteMemoriesLoaded.current) {
@@ -219,11 +224,21 @@ export function useKebo() {
   useEffect(() => {
     let active = true;
     void loadRemoteMemories()
-      .then((remoteMemories) => {
-        if (!active || !remoteMemories) return;
+      .then((remote) => {
+        if (!active || !remote) return;
         remoteMemoriesLoaded.current = true;
-        setMemories(remoteMemories);
-        memoriesRef.current = remoteMemories;
+        // Merge: remote wins on content, but local-only fields (follow-up flag, "added by you")
+        // and memories created offline are kept.
+        const local = new Map(memoriesRef.current.map((m) => [m.id, m]));
+        const merged = remote.map((m) => {
+          const mine = local.get(m.id);
+          return mine ? { ...m, followedUpAt: mine.followedUpAt, source: mine.source === 'manual' ? 'manual' as const : m.source } : m;
+        });
+        const remoteIds = new Set(remote.map((m) => m.id));
+        for (const m of memoriesRef.current) if (!remoteIds.has(m.id)) merged.push(m);
+        merged.sort((a, b) => a.createdAt - b.createdAt);
+        setMemories(merged);
+        memoriesRef.current = merged;
       })
       .catch((error) => {
         remoteMemoriesLoaded.current = true;
@@ -232,215 +247,300 @@ export function useKebo() {
     return () => { active = false; };
   }, []);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    } catch {
-      /* ignore */
-    }
-  }, [state]);
-
-  useEffect(() => {
-    const tick = () => {
-      setState((prev) => {
-        const now = Date.now();
-        const elapsed = now - prev.lastInteraction;
-        const stats = decayStats(prev.stats, elapsed);
-        // Passive stat decay should not overwrite the mood chosen by the latest interaction.
-        // The next user message will recalculate the emotional response.
-        return {
-          ...prev,
-          stats,
-          emotion: prev.emotion,
-          lastInteraction: now,
-          activity: prev.activity === 'talking' || prev.activity === 'thinking' ? prev.activity : 'idle',
-        };
-      });
-    };
-    const interval = setInterval(tick, DECAY_TICK_MS);
-    return () => clearInterval(interval);
+  /* ── Helpers ── */
+  const log = useCallback((entry: Omit<ActivityEntry, 'id' | 'at'> & { at?: number }) => {
+    setActivityLog((current) => [{ id: newId('a'), at: Date.now(), ...entry }, ...current].slice(0, MAX_ACTIVITY));
   }, []);
 
-  const showThought = useCallback((text: string, durationMs = 3500) => {
+  const showThought = useCallback((text: string, durationMs = 4000) => {
     if (thoughtTimer.current) clearTimeout(thoughtTimer.current);
     setThoughtBubble(text);
     thoughtTimer.current = setTimeout(() => setThoughtBubble(null), durationMs);
   }, []);
 
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setState((prev) => {
-        const idle = prev.activity === 'idle';
-        const quiet = Date.now() - prev.lastInteraction > IDLE_THOUGHT_MS;
-        if (idle && quiet && prev.stats.energy > 15) {
-          const rememberedName = memoriesRef.current.find((memory) => memory.text.toLowerCase().includes("user's name"));
-          const thought = rememberedName && prev.stats.bond > 35
-            ? {
-                text: `I was just thinking about you${rememberedName.text.match(/is ([^.]+)\./i)?.[1] ? `, ${rememberedName.text.match(/is ([^.]+)\./i)?.[1]}` : ''}. Everything feels very quiet on my side of the garden. 🌱`,
-                emotion: 'joy' as const,
-              }
-            : idleThought(prev);
-          showThought(thought.text, 4000);
-          setMessages((messages) => [
-            ...messages,
-            { id: newId(), sender: 'kebo', text: thought.text, emotion: thought.emotion, createdAt: Date.now() },
-          ]);
-          return { ...prev, lastInteraction: Date.now() };
-        }
-        return prev;
-      });
-    }, IDLE_THOUGHT_MS);
-    return () => clearInterval(interval);
-  }, [showThought]);
-
-  /**
-   * Apply conversation impact to state, AND RETURN the new state synchronously
-   * so callers (LLM) receive the updated vitals/emotion — NO stale stateRef race.
-   */
-  const applyConversation = useCallback(
-    (intensity: number, messageText: string, analysis?: KeboEmotionAnalysis): ConversationResult => {
-      const prev = stateRef.current;
-      const result = computeConversationImpact(prev, intensity, messageText, analysis);
-      const now = Date.now();
-      const next: KeboState = {
-        ...prev,
-        stats: result.stats,
-        emotion: result.emotion,
-        lastInteraction: now,
-      };
-      stateRef.current = next;
-      setState(next);
-      return result;
-    },
-    []
-  );
-
-  const sendMessage = useCallback(
-    (text: string) => {
-      const trimmed = text.trim();
-      if (!trimmed || isThinking) return;
-
-      const userMsg: Message = {
-        id: newId(),
-        sender: 'user',
-        text: trimmed,
-        emotion: 'curious',
-        createdAt: Date.now(),
-      };
-      setMessages((msgs) => [...msgs, userMsg]);
-      setState((prev) => {
-        const next = { ...prev, activity: 'thinking' as Activity };
-        stateRef.current = next;
-        return next;
-      });
-      setIsThinking(true);
-
-      if (thinkTimer.current) clearTimeout(thinkTimer.current);
-      if (activityTimer.current) clearTimeout(activityTimer.current);
-
-      const currentRequestId = ++requestId.current;
-      abortController.current?.abort();
-      const controller = new AbortController();
-      abortController.current = controller;
-
-      const isCancelled = () => currentRequestId !== requestId.current || controller.signal.aborted;
-
-      thinkTimer.current = setTimeout(() => {
-        void (async () => {
-          const preAnalysisState = stateRef.current;
-          let analysis: KeboEmotionAnalysis;
-          try {
-            analysis = await analyzeKeboMessage(trimmed, preAnalysisState.emotion, controller.signal);
-          } catch {
-            const fallbackEmotion = detectMessageEmotion(trimmed).emotion || preAnalysisState.emotion;
-            analysis = { emotion: fallbackEmotion, intensity: 0.5, target: 'unclear', reason: 'local fallback' };
-          }
-
-          if (isCancelled()) return;
-
-          const impact = applyConversation(Math.max(0.25, analysis.intensity), trimmed, analysis);
-          const updatedState: KeboState = {
-            ...stateRef.current,
-            stats: impact.stats,
-            emotion: impact.emotion,
-          };
-          stateRef.current = updatedState;
-
-          const relevantMemories = memoryContext(memoriesRef.current, trimmed);
-
-          let reply: { text: string; emotion: KeboState['emotion'] };
-
-          try {
-            const response = await askKeboLLM({
-              message: trimmed,
-              keboState: updatedState,
-              emotion: updatedState.emotion,
-              recentConversation: messagesRef.current,
-              relevantMemories,
-              signal: controller.signal,
-            });
-            reply = { text: response.text, emotion: updatedState.emotion };
-            if (response.extractedMemories.length) {
-              setMemories((existing) => {
-                const next = addMemories(existing, response.extractedMemories);
-                memoriesRef.current = next;
-                return next;
-              });
-            }
-          } catch (error) {
-            if (isCancelled()) return;
-            console.error('[Kebo] LLM unavailable:', error instanceof Error ? error.message : error);
-            // Preserve the local extractor only as an offline fallback. Successful
-            // turns use the structured memory candidates returned by the LLM.
-            const fallbackMemoryTexts = extractMemories(trimmed);
-            if (fallbackMemoryTexts.length) {
-              setMemories((existing) => {
-                const next = addMemories(existing, fallbackMemoryTexts);
-                memoriesRef.current = next;
-                return next;
-              });
-            }
-            reply = {
-              text: "I’m having trouble reaching my language engine right now. Please try again in a moment. 🌱",
-              emotion: updatedState.emotion,
-            };
-          }
-
-          if (isCancelled()) return;
-
-          const finalEmotion = updatedState.emotion;
-          setState((cur) => ({ ...cur, activity: 'talking', emotion: finalEmotion }));
-          setMessages((msgs) => [
-            ...msgs,
-            {
-              id: newId(),
-              sender: 'kebo',
-              text: reply.text,
-              emotion: finalEmotion,
-              createdAt: Date.now(),
-            },
-          ]);
-          setIsThinking(false);
-          activityTimer.current = setTimeout(() => {
-            setState((p) => ({ ...p, activity: 'idle' }));
-          }, 2500);
-        })();
-      }, THINK_DELAY_MS);
-    },
-    [applyConversation, isThinking, showThought]
-  );
-
-  useEffect(() => {
-    return () => {
-      requestId.current += 1;
-      abortController.current?.abort();
-      if (thinkTimer.current) clearTimeout(thinkTimer.current);
-      if (activityTimer.current) clearTimeout(activityTimer.current);
-      if (thoughtTimer.current) clearTimeout(thoughtTimer.current);
-    };
+  const commitState = useCallback((next: KeboState) => {
+    stateRef.current = next;
+    setState(next);
   }, []);
 
+  const pushMessage = useCallback((message: Message) => {
+    messagesRef.current = [...messagesRef.current, message];
+    setMessages((current) => [...current, message]);
+  }, []);
+
+  const persistAgent = () => writeJson(AGENT_KEY, agentRef.current);
+
+  /* ── Backend health ── */
+  useEffect(() => {
+    let alive = true;
+    const run = async () => {
+      const status = await checkBackend(AbortSignal.timeout(6000));
+      if (alive) setBackendStatus(status);
+    };
+    void run();
+    const interval = setInterval(run, 45_000);
+    return () => { alive = false; clearInterval(interval); };
+  }, []);
+
+  /* ── First run / welcome back ── */
+  const welcomed = useRef(false);
+  useEffect(() => {
+    if (welcomed.current) return;
+    welcomed.current = true;
+    const current = stateRef.current;
+    const away = Date.now() - current.lastUserMessageAt;
+    if (messagesRef.current.length === 0) {
+      pushMessage(welcomeMessage(current, memoriesRef.current, false));
+    } else if (away > 30 * 60_000) {
+      pushMessage(welcomeMessage(current, memoriesRef.current, true));
+      log({ kind: 'system', text: 'Kebo greeted you after you were away.' });
+    }
+  }, [log, pushMessage]);
+
+  /* ── Passive time: decay + mood follows vitals once a pulse expires ── */
+  useEffect(() => {
+    const tick = () => {
+      const prev = stateRef.current;
+      const now = Date.now();
+      const scale = timeScaleOf(settingsRef.current);
+      const stats = decayStats(prev.stats, now - prev.lastInteraction, scale, prev.activity === 'resting');
+      let { activity } = prev;
+      if (now > activityUntil.current && (activity === 'playing' || activity === 'exploring' || activity === 'resting' || activity === 'feeding')) activity = 'idle';
+      const emotion = now > prev.emotionUntil ? deriveEmotion(stats, prev.personality) : prev.emotion;
+      commitState({ ...prev, stats, emotion, activity, lastInteraction: now });
+    };
+    const interval = setInterval(tick, TICK_MS);
+    return () => clearInterval(interval);
+  }, [commitState]);
+
+  /* ── Autonomous agent loop ── */
+  useEffect(() => {
+    const run = async () => {
+      if (agentBusy.current || (document.visibilityState === 'hidden' && !settingsRef.current.notifications)) return;
+      const now = Date.now();
+      const current = stateRef.current;
+      const agent = agentRef.current;
+      const decision = decideAction({
+        state: current,
+        memories: settingsRef.current.memoryEnabled ? memoriesRef.current : [],
+        settings: settingsRef.current,
+        now,
+        lastAutonomousMessageAt: agent.lastAutonomousMessageAt,
+        lastAutonomousActionAt: agent.lastAutonomousActionAt,
+        unansweredAutonomous: agent.unansweredAutonomous,
+        quietUntil: agent.quietUntil,
+      });
+      if (decision.action === 'WAIT') return;
+
+      agentBusy.current = true;
+      try {
+        if (MESSAGE_ACTIONS.includes(decision.action)) {
+          const fallback = composeAutonomousText(decision, current, memoriesRef.current, now);
+          let text = fallback.text;
+          const useLlm = settingsRef.current.llmInitiations && backendRef.current === 'online' && decision.action !== 'REFERENCE_MEMORY';
+          if (useLlm) {
+            try {
+              text = await composeInitiatedMessage({
+                action: decision.action,
+                reason: decision.reason,
+                keboState: current,
+                recentConversation: messagesRef.current,
+                memory: decision.memory?.text,
+                signal: AbortSignal.timeout(8000),
+              });
+            } catch { /* template fallback */ }
+          }
+          if (stateRef.current.activity === 'talking' || stateRef.current.activity === 'thinking') return;
+          pushMessage({ id: newId(), sender: 'kebo', text, emotion: fallback.emotion, createdAt: Date.now(), autonomous: true });
+          agent.lastAutonomousMessageAt = Date.now();
+          agent.unansweredAutonomous += 1;
+          if (decision.memory && decision.action === 'REFERENCE_MEMORY' && decision.memory.type === 'event') {
+            const next = markFollowedUp(memoriesRef.current, decision.memory.id);
+            memoriesRef.current = next;
+            setMemories(next);
+          }
+          log({ kind: 'autonomous', action: decision.action, text, reason: decision.reason });
+          showThought(text.length > 90 ? `${text.slice(0, 87)}…` : text, 5000);
+          if (settingsRef.current.notifications && document.visibilityState === 'hidden' && 'Notification' in window && Notification.permission === 'granted') {
+            try { new Notification('Kebo 🌱', { body: text }); } catch { /* ignore */ }
+          }
+        } else {
+          const text = ambientText(decision.action, current, now);
+          const nextActivity = activityForAction(decision.action);
+          if (nextActivity) {
+            activityUntil.current = now + (decision.action === 'REST' ? 60_000 : 20_000);
+            const stats = { ...stateRef.current.stats };
+            if (decision.action === 'PLAY') { stats.happiness = Math.min(100, stats.happiness + 3); stats.stimulation = Math.min(100, stats.stimulation + 8); stats.energy = Math.max(0, stats.energy - 3); }
+            if (decision.action === 'EXPLORE') { stats.stimulation = Math.min(100, stats.stimulation + 10); stats.energy = Math.max(0, stats.energy - 2); }
+            commitState({ ...stateRef.current, stats, activity: nextActivity });
+          }
+          agent.lastAutonomousActionAt = now;
+          log({ kind: 'autonomous', action: decision.action, text, reason: decision.reason });
+        }
+        persistAgent();
+      } finally {
+        agentBusy.current = false;
+      }
+    };
+    const interval = setInterval(() => { void run(); }, AGENT_TICK_MS);
+    return () => clearInterval(interval);
+  }, [commitState, log, pushMessage, showThought]);
+
+  /* ── Care actions (feed / water / sun / play / rest) ── */
+  const care = useCallback((action: CareAction) => {
+    const now = Date.now();
+    const prev = stateRef.current;
+    const change = applyCare(prev, action, now);
+    const activity: Activity = action === 'play' ? 'playing' : action === 'rest' ? 'resting' : 'feeding';
+    activityUntil.current = now + (action === 'rest' ? 45_000 : 8_000);
+    const relationship = updateRelationship(prev.relationship, null, change.stats.bond, now, { care: true, memoryCount: memoriesRef.current.length });
+    commitState({
+      ...prev,
+      stats: change.stats,
+      emotion: change.emotion,
+      emotionUntil: change.emotionUntil,
+      activity,
+      lastInteraction: now,
+      lastUserMessageAt: now,
+      relationship,
+    });
+    agentRef.current.unansweredAutonomous = 0;
+    persistAgent();
+    const labels = CARE_LABELS[action];
+    pushMessage({ id: newId(), sender: 'kebo', text: labels.reply, emotion: change.emotion, createdAt: now });
+    log({ kind: 'care', text: labels.log });
+  }, [commitState, log, pushMessage]);
+
+  /* ── Conversation ── */
+  const sendMessage = useCallback((text: string) => {
+    const trimmed = text.trim().slice(0, 1000);
+    if (!trimmed || isThinking) return;
+    const startedAt = Date.now();
+
+    const userMessage: Message = { id: newId(), sender: 'user', text: trimmed, emotion: 'curious', createdAt: startedAt };
+    pushMessage(userMessage);
+    agentRef.current.unansweredAutonomous = 0;
+
+    commitState({ ...stateRef.current, activity: 'thinking', lastUserMessageAt: startedAt });
+    setIsThinking(true);
+
+    const currentRequestId = ++requestId.current;
+    abortController.current?.abort();
+    const controller = new AbortController();
+    abortController.current = controller;
+    const cancelled = () => currentRequestId !== requestId.current || controller.signal.aborted;
+
+    void (async () => {
+      // 1) Understand the message (rules first; LLM only when the rules are unsure).
+      let appraisal: Appraisal = appraiseMessage(trimmed);
+      if (appraisal.confidence < 0.6 && backendRef.current === 'online' && !appraisal.safety) {
+        try {
+          const analysis = await analyzeKeboMessage(trimmed, stateRef.current.emotion, AbortSignal.any([controller.signal, AbortSignal.timeout(ANALYSIS_TIMEOUT_MS)]));
+          appraisal = refineWithAnalysis(appraisal, analysis);
+        } catch { /* keep the rule-based reading */ }
+      }
+      if (cancelled()) return;
+
+      // 2) Update Kebo's internal state (appraisal -> vitals -> emotion).
+      const before = stateRef.current;
+      const now = Date.now();
+      const change = applyAppraisal(before, appraisal, now);
+      let stateAfter: KeboState = { ...before, stats: change.stats, emotion: change.emotion, emotionUntil: change.emotionUntil, lastInteraction: now, lastUserMessageAt: now };
+
+      if (appraisal.care) {
+        const careChange = applyCare(stateAfter, appraisal.care, now);
+        stateAfter = { ...stateAfter, stats: careChange.stats, emotion: careChange.emotion, emotionUntil: careChange.emotionUntil };
+        log({ kind: 'care', text: CARE_LABELS[appraisal.care].log });
+      }
+      if (appraisal.kind === 'request_quiet') {
+        agentRef.current.quietUntil = now + QUIET_MS;
+        log({ kind: 'system', text: 'You asked Kebo for quiet — it will not start conversations for 30 minutes.' });
+      }
+      stateAfter = {
+        ...stateAfter,
+        relationship: updateRelationship(before.relationship, appraisal, stateAfter.stats.bond, now, { care: Boolean(appraisal.care), memoryCount: memoriesRef.current.length }),
+      };
+      commitState(stateAfter);
+      persistAgent();
+
+      if (stateAfter.emotion !== before.emotion) {
+        log({
+          kind: 'emotion',
+          text: `Mood changed: ${EMOTIONS[before.emotion].label} → ${EMOTIONS[stateAfter.emotion].label}`,
+          reason: appraisal.situation.split('.')[0],
+        });
+      }
+
+      // 3) Ask the LLM (or fall back to the local brain) with the full context.
+      const settingsNow = settingsRef.current;
+      const relevantMemories = settingsNow.memoryEnabled ? memoryContext(memoriesRef.current, trimmed) : [];
+      let replyText: string;
+      let llmMemories: string[] | null = null;
+      try {
+        const response = await askKeboLLM({
+          message: trimmed,
+          keboState: stateAfter,
+          emotion: stateAfter.emotion,
+          recentConversation: messagesRef.current,
+          relevantMemories,
+          situation: appraisal.situation,
+          signal: controller.signal,
+        });
+        replyText = response.text;
+        llmMemories = response.extractedMemories;
+        if (backendRef.current !== 'online') setBackendStatus('online');
+        if (relevantMemories.length) showThought(`Remembering: ${relevantMemories[0]}`, 3000);
+      } catch (error) {
+        if (cancelled()) return;
+        console.warn('[Kebo] LLM unavailable, using local brain:', error instanceof Error ? error.message : error);
+        setBackendStatus('offline');
+        replyText = mockAgentRespond(stateAfter, trimmed).text;
+      }
+      if (cancelled()) return;
+
+      // 4) Memory (episodic events are always extracted locally; facts prefer the LLM).
+      if (settingsNow.memoryEnabled && !appraisal.safety) {
+        const local = extractMemories(trimmed);
+        const candidates = llmMemories === null ? local : [...llmMemories, ...local.filter((item) => item.startsWith('Upcoming '))];
+        if (candidates.length) {
+          const next = addMemories(memoriesRef.current, candidates);
+          memoriesRef.current = next;
+          setMemories(next);
+          log({ kind: 'memory', text: `Kebo remembered: ${candidates[0]}` });
+          stateAfter = { ...stateRef.current, relationship: updateRelationship(stateRef.current.relationship, null, stateRef.current.stats.bond, Date.now(), { memoryCount: next.length }) };
+          commitState(stateAfter);
+        }
+      }
+
+      // 5) Speak.
+      commitState({ ...stateRef.current, activity: 'talking' });
+      pushMessage({ id: newId(), sender: 'kebo', text: replyText, emotion: stateRef.current.emotion, createdAt: Date.now() });
+      setIsThinking(false);
+      setTimeout(() => {
+        if (stateRef.current.activity === 'talking') commitState({ ...stateRef.current, activity: 'idle' });
+      }, 2500);
+    })();
+  }, [commitState, isThinking, log, pushMessage, showThought]);
+
+  useEffect(() => () => {
+    requestId.current += 1;
+    abortController.current?.abort();
+    if (thoughtTimer.current) clearTimeout(thoughtTimer.current);
+  }, []);
+
+  /* ── Settings / data controls ── */
+  const updateSettings = useCallback((patch: Partial<KeboSettings>) => {
+    setSettingsState((current) => ({ ...current, ...patch }));
+  }, []);
+
+  const setPersonality = useCallback((patch: Partial<Personality>) => {
+    const prev = stateRef.current;
+    const personality = { ...prev.personality, ...patch };
+    commitState({ ...prev, personality, emotion: deriveEmotion(prev.stats, personality), emotionUntil: 0 });
+  }, [commitState]);
+
   const clearMessages = useCallback(() => {
+    messagesRef.current = [];
     setMessages([]);
   }, []);
 
@@ -451,14 +551,82 @@ export function useKebo() {
     void clearRemoteMemories().catch((error) => console.warn('[Kebo] Remote memory clear failed:', error));
   }, []);
 
+  const deleteMemory = useCallback((id: string) => {
+    const next = removeMemory(memoriesRef.current, id);
+    memoriesRef.current = next;
+    setMemories(next);
+  }, []);
+
+  const addManualMemory = useCallback((text: string) => {
+    const next = addMemories(memoriesRef.current, [text]).map((memory) => (memory.text === text.trim().replace(/\s+/g, ' ') ? { ...memory, source: 'manual' as const } : memory));
+    memoriesRef.current = next;
+    setMemories(next);
+  }, []);
+
+  const clearActivity = useCallback(() => setActivityLog([]), []);
+
+  const resetKebo = useCallback(() => {
+    const fresh = freshState();
+    commitState(fresh);
+    agentRef.current = { lastAutonomousMessageAt: Date.now(), lastAutonomousActionAt: 0, unansweredAutonomous: 0, quietUntil: 0 };
+    persistAgent();
+    messagesRef.current = [];
+    setMessages([welcomeMessage(fresh, [], false)]);
+    setActivityLog([]);
+  }, [commitState]);
+
+  /** Demo helper: pretend the user has been away, so loneliness/hunger/agent behaviour become visible. */
+  const simulateAway = useCallback((hours: number) => {
+    const prev = stateRef.current;
+    const ms = hours * 3_600_000;
+    const stats = decayStats(prev.stats, ms, 1, false);
+    commitState({ ...prev, stats, emotion: deriveEmotion(stats, prev.personality), emotionUntil: 0, lastUserMessageAt: prev.lastUserMessageAt - ms, lastInteraction: Date.now() });
+    agentRef.current = { lastAutonomousMessageAt: 0, lastAutonomousActionAt: 0, unansweredAutonomous: 0, quietUntil: 0 };
+    persistAgent();
+    log({ kind: 'system', text: `Simulated ${hours} hours without you (demo tool).` });
+  }, [commitState, log]);
+
+  const exportData = useCallback(() => JSON.stringify({
+    exportedAt: new Date().toISOString(),
+    state: stateRef.current,
+    settings: settingsRef.current,
+    memories: memoriesRef.current,
+    messages: messagesRef.current,
+  }, null, 2), []);
+
+  const agentPreview: AgentDecision = decideAction({
+    state,
+    memories: settings.memoryEnabled ? memories : [],
+    settings,
+    now: Date.now(),
+    lastAutonomousMessageAt: agentRef.current.lastAutonomousMessageAt,
+    lastAutonomousActionAt: agentRef.current.lastAutonomousActionAt,
+    unansweredAutonomous: agentRef.current.unansweredAutonomous,
+    quietUntil: agentRef.current.quietUntil,
+  });
+
   return {
+    agentPreview,
+    simulateAway,
     state,
     messages,
+    memories,
+    activityLog,
+    settings,
+    backendStatus,
     isThinking,
     thoughtBubble,
-    memories,
+    agentQuietUntil: agentRef.current.quietUntil,
     sendMessage,
+    care,
+    updateSettings,
+    setPersonality,
     clearMessages,
     clearMemories,
+    deleteMemory,
+    addManualMemory,
+    clearActivity,
+    resetKebo,
+    exportData,
   };
 }

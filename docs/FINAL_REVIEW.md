@@ -3,6 +3,12 @@
 ## Purpose
 Kebo is a plant-like AI companion prototype designed to maintain conversational continuity through a simulated emotional state, a recognizable companion personality, and persistent structured memories. Its emotional variables are computational signals, not claims of consciousness.
 
+## Emotion model and companion behavior
+Kebo keeps the user's inferred emotional context separate from its own simulated visible emotion. Clear distress signals (for example, loneliness, social exhaustion, or feeling excluded) should usually make Kebo's visible expression calm and attentive rather than copying the user's sadness or anger. Anger explicitly directed at Kebo remains a separate case. The language model is used for conversational language; the frontend's deterministic state engine remains authoritative for simulated vitals. Emotion labels are heuristic estimates, not clinical assessments or evidence of consciousness.
+
+## Voice interaction and known limits
+Voice input is push-to-talk: the browser records audio, the backend transcribes it, the transcript enters the same chat pipeline as typed text, and browser speech synthesis reads Kebo's reply aloud. This is not real-time speech-to-speech. Microphone permission, browser recording support, network availability, transcription-provider availability, and installed browser voices can all affect the experience. On errors, the UI should return to a usable non-listening state and keep text chat available. Voice reliability must be verified in the target browser before the demonstration.
+
 ## Runtime architecture
 1. The React/TypeScript frontend accepts typed messages or push-to-talk audio.
 2. The emotion-analysis endpoint applies a deterministic local classifier. It does not need a provider LLM call.

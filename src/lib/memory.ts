@@ -99,20 +99,67 @@ export function extractMemories(text: string): string[] {
 
 export function addMemories(existing: KeboMemory[], texts: string[]): KeboMemory[] {
   const next = [...existing];
-  for (const text of texts) {
-    if (next.some((memory) => memory.text.toLowerCase() === text.toLowerCase())) continue;
+  for (const rawText of texts) {
+    const text = rawText.trim().replace(/\s+/g, ' ');
+    if (text.length < 6 || text.length > 220) continue;
+    const normalized = text.toLocaleLowerCase();
+    const exact = next.findIndex((memory) => memory.text.trim().toLocaleLowerCase() === normalized);
+    if (exact >= 0) {
+      next[exact] = { ...next[exact], lastUsedAt: Date.now() };
+      continue;
+    }
+
     const metadata = classifyMemory(text);
-    next.push({ id: `memory-${Date.now()}-${next.length}`, text, ...metadata, createdAt: Date.now(), lastUsedAt: Date.now() });
+    const subject = memorySubject(text, metadata.type);
+    if (subject) {
+      const conflictIndex = next.findIndex((memory) => {
+        const existingMetadata = classifyMemory(memory.text);
+        return memorySubject(memory.text, existingMetadata.type) === subject;
+      });
+      if (conflictIndex >= 0) next.splice(conflictIndex, 1);
+    }
+
+    const now = Date.now();
+    next.push({
+      id: `memory-${now}-${Math.random().toString(36).slice(2, 8)}`,
+      text,
+      ...metadata,
+      createdAt: now,
+      lastUsedAt: now,
+    });
   }
 
   return next.slice(-100);
+}
+
+function memorySubject(text: string, type: KeboMemory['type']): string | null {
+  const lower = text.toLowerCase();
+  if (/user's name is|wants to be called/.test(lower)) return 'profile:name';
+  if (/lives in/.test(lower)) return 'profile:location';
+
+  if (type !== 'preference') return null;
+
+  // Replace only preferences about the same recognizable subject.
+  // Unknown/general preferences are retained rather than risking deletion
+  // of an unrelated fact.
+  if (/coffee|tea|drink|beverage|water/.test(lower)) return 'preference:drink';
+  if (/food|eat|meal|cuisine|pizza|fruit/.test(lower)) return 'preference:food';
+  if (/music|song|artist|band/.test(lower)) return 'preference:music';
+  if (/color|colour/.test(lower)) return 'preference:color';
+  if (/book|reading|novel|author/.test(lower)) return 'preference:books';
+  if (/movie|film|cinema|tv show|series/.test(lower)) return 'preference:screen-media';
+  if (/game|gaming|video game/.test(lower)) return 'preference:games';
+  if (/sport|football|cricket|tennis|basketball/.test(lower)) return 'preference:sports';
+  if (/hobby|gardening|drawing|painting|photography/.test(lower)) return 'preference:hobbies';
+
+  return null;
 }
 
 function classifyMemory(text: string): Pick<KeboMemory, 'type' | 'importance' | 'confidence' | 'source'> {
   const lower = text.toLowerCase();
   const type = /name is|called|lives in|has a|mentioned having/.test(lower)
     ? 'user_fact'
-    : /likes|dislikes|favorite|enjoys/.test(lower)
+    : /likes?|loves?|enjoys?|prefers?|dislikes?|hates?|favorite|favourite/.test(lower)
       ? 'preference'
       : /working on|building|project|goal|intends|plan/.test(lower)
         ? 'goal'

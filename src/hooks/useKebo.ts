@@ -10,7 +10,7 @@ import {
 } from '../types/kebo';
 import { clamp, decayStats, deriveEmotion, resolveConversationEmotion, detectMessageEmotion } from '../lib/keboEngine';
 import { idleThought } from '../lib/mockAgent';
-import { analyzeKeboMessage, askKeboLLM, type KeboEmotionAnalysis, type KeboReasoningPlan } from '../lib/llmAgent';
+import { analyzeKeboMessage, askKeboLLM, type KeboEmotionAnalysis } from '../lib/llmAgent';
 import { addMemories, extractMemories, loadMemories, memoryContext, saveMemories, type KeboMemory } from '../lib/memory';
 import { clearRemoteMemories, loadRemoteMemories, saveRemoteMemories } from '../lib/supabaseMemory';
 
@@ -328,15 +328,6 @@ export function useKebo() {
         createdAt: Date.now(),
       };
       setMessages((msgs) => [...msgs, userMsg]);
-      const newMemoryTexts = extractMemories(trimmed);
-      if (newMemoryTexts.length) {
-        setMemories((existing) => {
-          const next = addMemories(existing, newMemoryTexts);
-          memoriesRef.current = next;
-          return next;
-        });
-      }
-
       setState((prev) => {
         const next = { ...prev, activity: 'thinking' as Activity };
         stateRef.current = next;
@@ -378,7 +369,6 @@ export function useKebo() {
           const relevantMemories = memoryContext(memoriesRef.current, trimmed);
 
           let reply: { text: string; emotion: KeboState['emotion'] };
-          let reasoningPlan: KeboReasoningPlan | undefined;
 
           try {
             const response = await askKeboLLM({
@@ -390,15 +380,26 @@ export function useKebo() {
               signal: controller.signal,
             });
             reply = { text: response.text, emotion: updatedState.emotion };
-            reasoningPlan = response.reasoningPlan;
-            if (reasoningPlan?.memoryToUse.length) {
-              const retrieved = new Set(relevantMemories);
-              const remembered = reasoningPlan.memoryToUse.find((memory) => retrieved.has(memory));
-              if (remembered) showThought(`Remembering: ${remembered}`, 3000);
+            if (response.extractedMemories.length) {
+              setMemories((existing) => {
+                const next = addMemories(existing, response.extractedMemories);
+                memoriesRef.current = next;
+                return next;
+              });
             }
           } catch (error) {
             if (isCancelled()) return;
             console.error('[Kebo] LLM unavailable:', error instanceof Error ? error.message : error);
+            // Preserve the local extractor only as an offline fallback. Successful
+            // turns use the structured memory candidates returned by the LLM.
+            const fallbackMemoryTexts = extractMemories(trimmed);
+            if (fallbackMemoryTexts.length) {
+              setMemories((existing) => {
+                const next = addMemories(existing, fallbackMemoryTexts);
+                memoriesRef.current = next;
+                return next;
+              });
+            }
             reply = {
               text: "I’m having trouble reaching my language engine right now. Please try again in a moment. 🌱",
               emotion: updatedState.emotion,

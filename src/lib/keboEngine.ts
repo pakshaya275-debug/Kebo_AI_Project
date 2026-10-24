@@ -127,17 +127,20 @@ export function resolveConversationEmotion(
     /\b(angry|mad|furious|frustrated|irritated|annoyed|fed up)\b.*\b(with|at|on)\s+(myself|me)\b/.test(text)
     || /\b(i am|i'm|im|i feel|feeling)\b.*\b(angry|mad|furious|frustrated|irritated|annoyed|fed up)\b.*\b(myself|my life|my fault|my work|my marks|my exam|my project)\b/.test(text);
 
+  const socialDisconnection =
+    /\b(hate people|don't like anyone|dont like anyone|do not like anyone|i dislike everyone|can't stand people|cant stand people|everyone sucks|nobody likes me|no one likes me|have no friends|don't have friends|dont have friends|feel alone|socially exhausted)\b/.test(text);
+
   const anxious =
     /\b(scared|afraid|terrified|fearful|nervous|worried|anxious|stressed|stress|overwhelmed|panic|panicking)\b/.test(text);
 
   const sad =
-    /\b(sad|unhappy|heartbroken|lonely|hurt|crying|cry|disappointed|don't like my life|dont like my life)\b/.test(text);
+    /\b(sad|unhappy|heartbroken|lonely|hurt|crying|cry|disappointed|don't like my life|dont like my life|rejected|left out|isolated)\b/.test(text);
 
   const irritation =
     /\b(irritated|irritating|annoyed|fed up|frustrated|frustrating|upset)\b/.test(text);
 
   const tired =
-    /\b(tired|sleepy|exhausted|drained|no energy|low on energy)\b/.test(text);
+    /\b(tired|sleepy|exhausted|drained|no energy|low on energy|worn out)\b/.test(text);
 
   const joyful =
     /\b(happy|excited|amazing|awesome|excellent|great|wonderful|fantastic|relieved|proud|love|thanks|thank you)\b/.test(text);
@@ -153,24 +156,30 @@ export function resolveConversationEmotion(
     return { emotion: 'angry', messageEmotion: 'angry', target: 'kebo', explicit: true };
   }
 
+  // Kebo has its own simulated mood. User distress should invite a calm,
+  // attentive response rather than forcing Kebo to mirror the user's state.
+  if (socialDisconnection) {
+    return { emotion: 'calm', messageEmotion: 'sad', target: 'outside', explicit: true };
+  }
+
   if (selfAnger) {
-    return { emotion: 'sad', messageEmotion: 'sad', target: 'self', explicit: true };
+    return { emotion: 'calm', messageEmotion: 'sad', target: 'self', explicit: true };
   }
 
   if (anxious) {
-    return { emotion: 'anxious', messageEmotion: 'anxious', target: 'outside', explicit: true };
+    return { emotion: 'calm', messageEmotion: 'anxious', target: 'outside', explicit: true };
   }
 
   if (sad) {
-    return { emotion: 'sad', messageEmotion: 'sad', target: 'self', explicit: true };
+    return { emotion: 'calm', messageEmotion: 'sad', target: 'self', explicit: true };
   }
 
   if (irritation) {
-    return { emotion: 'anxious', messageEmotion: 'anxious', target: 'outside', explicit: true };
+    return { emotion: 'calm', messageEmotion: 'anxious', target: 'outside', explicit: true };
   }
 
   if (tired) {
-    return { emotion: 'tired', messageEmotion: 'tired', target: 'self', explicit: true };
+    return { emotion: 'calm', messageEmotion: 'tired', target: 'self', explicit: true };
   }
 
   if (joyful) {
@@ -191,11 +200,16 @@ export function resolveConversationEmotion(
         ? 'sad'
         : analysis.emotion;
 
+    const isDistress = ['sad', 'anxious', 'tired'].includes(messageEmotion);
     return {
-      emotion: messageEmotion,
+      emotion: analysis.target === 'kebo' && messageEmotion === 'angry'
+        ? 'angry'
+        : isDistress || (messageEmotion === 'angry' && analysis.target !== 'kebo')
+          ? 'calm'
+          : messageEmotion,
       messageEmotion,
       target: analysis.target,
-      explicit: analysis.intensity >= 0.65,
+      explicit: analysis.intensity >= 0.45 || isDistress || (messageEmotion === 'angry' && analysis.target === 'kebo'),
     };
   }
 

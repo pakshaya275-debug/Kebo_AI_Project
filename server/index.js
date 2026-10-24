@@ -32,10 +32,11 @@ app.use(cors({
   credentials: true,
 }));
 app.use(express.json({ limit: '128kb' }));
-const baseURL = process.env.OPENAI_BASE_URL || 'http://127.0.0.1:1234/v1';
-const model = process.env.OPENAI_MODEL || 'local-model';
+const baseURL = process.env.OPENAI_BASE_URL || 'https://groq.com';
+const model = process.env.OPENAI_MODEL || 'llama-3.3-70b-specdec';
 const apiKey = process.env.OPENAI_API_KEY || 'openai-compatible';
 const client = new OpenAI({ apiKey, baseURL, timeout: 30_000, maxRetries: 0 });
+
 
 async function createChatCompletion(params, label = 'LLM request') {
   const maxAttempts = 2;

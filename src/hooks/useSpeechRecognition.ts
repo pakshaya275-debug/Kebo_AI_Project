@@ -40,7 +40,23 @@ export function useSpeechRecognition(onFinalTranscript: (text: string) => void):
   }, [onFinalTranscript]);
 
   const stopListening = useCallback(() => {
-    recorderRef.current?.stop();
+    const recorder = recorderRef.current;
+    if (!recorder || recorder.state === 'inactive') {
+      setIsListening(false);
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+      recorderRef.current = null;
+      return;
+    }
+    try {
+      recorder.stop();
+    } catch {
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+      recorderRef.current = null;
+      setIsListening(false);
+      setError('Could not stop the microphone recording. You can continue using text chat.');
+    }
   }, []);
 
   const startListening = useCallback(() => {
@@ -59,6 +75,14 @@ export function useSpeechRecognition(onFinalTranscript: (text: string) => void):
           if (event.data.size > 0) chunksRef.current.push(event.data);
         };
         recorder.onstart = () => setIsListening(true);
+        recorder.onerror = () => {
+          stream.getTracks().forEach((track) => track.stop());
+          streamRef.current = null;
+          recorderRef.current = null;
+          setIsListening(false);
+          setTranscript('');
+          setError('Microphone recording failed. You can continue using text chat.');
+        };
         recorder.onstop = async () => {
           setIsListening(false);
           stream.getTracks().forEach((track) => track.stop());
@@ -71,8 +95,20 @@ export function useSpeechRecognition(onFinalTranscript: (text: string) => void):
             const form = new FormData();
             form.append('audio', audio, 'kebo-voice.webm');
             form.append('language', language);
-            const response = await fetch(TRANSCRIBE_URL, { method: 'POST', body: form });
-            const data = (await response.json()) as { text?: string; error?: string };
+            const controller = new AbortController();
+            const timeout = window.setTimeout(() => controller.abort(), 45_000);
+            let response: Response;
+            try {
+              response = await fetch(TRANSCRIBE_URL, { method: 'POST', body: form, signal: controller.signal });
+            } finally {
+              window.clearTimeout(timeout);
+            }
+            let data: { text?: string; error?: string };
+            try {
+              data = (await response.json()) as { text?: string; error?: string };
+            } catch {
+              throw new Error('The transcription service returned an unreadable response. You can use text chat.');
+            }
             if (!response.ok || !data.text?.trim()) throw new Error(data.error || 'No speech was detected.');
             setTranscript(data.text.trim());
             onFinalTranscriptRef.current(data.text.trim());

@@ -822,15 +822,28 @@ The goal is to explore what it takes to create an AI character that can **mainta
 
 # 🌱 Current Status
 
-**Status:** Active Development
+**Status:** Final-review build. Implemented now:
 
-Current implementation:
+- **Appraisal engine** (`src/lib/appraisal.ts`): understands who a message is aimed at, relayed speech ("my brother said…"), negation, requests for quiet, care and safety. Unsure cases are refined by the LLM.
+- **Emotion engine** (`src/lib/keboEngine.ts`): appraisal → personality-scaled vitals → emotion. Moods change gradually, and fade back to the vitals-derived mood.
+- **7-trait personality** (curiosity, playfulness, sensitivity, patience, sociability, courage, affection), editable in Settings, and it really changes outcomes.
+- **Memory**: semantic (facts) + episodic (dated events such as "exam tomorrow"), per-item delete, manual add, on/off, export. Supabase with localStorage fallback.
+- **Autonomous agent** (`src/lib/agent.ts`): scores WAIT / SEND_MESSAGE / ASK_QUESTION / REQUEST_ATTENTION / PLAY / EXPLORE / REST / REFERENCE_MEMORY / CHANGE_ACTIVITY with anti-spam gates, autonomy levels, "be quiet" support, event follow-ups and optional notifications. Every action is logged with its reason on the Activity page.
+- **Relationship** page: levels, streaks, milestones. **Care** actions: feed, water, sunlight, play, rest.
+- Chat history, vitals and activity persist across refreshes; offline fallback brain if the backend is down; mobile navigation; live backend status.
+- Backend: rate limiting, input caps, crisis-safe replies, `/api/kebo-initiate`.
 
-> **Phase 1 — Frontend Prototype**
+Not yet implemented (future scope): token streaming, 3D avatar, interactive environment, authentication/multi-device accounts.
 
-The current version uses mock data and simulated Kebo behavior.
+**Demo tip:** Settings → *Demo speed* (30× time) and Activity → *Simulate 3 hours away* make loneliness and autonomous behaviour visible live.
 
-Real LLM integration, persistent memory, autonomous agents, voice interaction, and 3D character systems are planned for subsequent phases.
+## Tests
+
+```powershell
+npm test        # unit tests: appraisal, emotion engine, agent, memory
+npm run typecheck
+npm run lint
+```
 
 ---
 

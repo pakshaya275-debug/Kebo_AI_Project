@@ -22,6 +22,8 @@ interface AskKeboArgs {
   emotion: EmotionKey;
   recentConversation: Message[];
   relevantMemories: string[];
+  /** Plain-English description of what the appraisal engine understood about this message. */
+  situation?: string;
   signal?: AbortSignal;
 }
 
@@ -74,6 +76,7 @@ export async function askKeboLLM({
   emotion,
   recentConversation,
   relevantMemories,
+  situation,
   signal,
 }: AskKeboArgs): Promise<{ text: string; extractedMemories: string[] }> {
   const response = await fetch(API_URL, {
@@ -85,6 +88,7 @@ export async function askKeboLLM({
       emotion,
       recentConversation: recentConversation.slice(-10),
       relevantMemories,
+      situation,
     }),
     signal,
   });
@@ -95,4 +99,42 @@ export async function askKeboLLM({
   }
 
   return { text: data.reply.trim(), extractedMemories: Array.isArray(data.extractedMemories) ? data.extractedMemories.filter((item): item is string => typeof item === 'string') : [] };
+}
+
+const INITIATE_URL = resolveApiUrl(undefined, '/api/kebo-initiate');
+const HEALTH_URL = resolveApiUrl(undefined, '/api/health');
+
+export interface KeboInitiateArgs {
+  action: string;
+  reason: string;
+  keboState: KeboState;
+  recentConversation: Message[];
+  memory?: string;
+  signal?: AbortSignal;
+}
+
+/** Asks the LLM to write a Kebo-initiated message for an action the agent already chose. */
+export async function composeInitiatedMessage({ action, reason, keboState, recentConversation, memory, signal }: KeboInitiateArgs): Promise<string> {
+  const response = await fetch(INITIATE_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, reason, keboState, memory, recentConversation: recentConversation.slice(-6) }),
+    signal,
+  });
+  const data = await readJsonResponse(response) as { reply?: string; error?: string };
+  if (!response.ok || typeof data.reply !== 'string' || !data.reply.trim()) throw new Error(data.error || 'Initiation failed.');
+  return data.reply.trim();
+}
+
+export type BackendStatus = 'checking' | 'online' | 'offline' | 'unconfigured';
+
+export async function checkBackend(signal?: AbortSignal): Promise<BackendStatus> {
+  try {
+    const response = await fetch(HEALTH_URL, { signal });
+    if (!response.ok) return 'offline';
+    const data = await response.json() as { ok?: boolean; configured?: boolean };
+    return data.ok ? (data.configured === false ? 'unconfigured' : 'online') : 'offline';
+  } catch {
+    return 'offline';
+  }
 }

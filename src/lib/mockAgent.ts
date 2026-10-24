@@ -59,7 +59,7 @@ const playIntent: Intent = {
 const complimentIntent: Intent = {
   keywords: ['good job', 'well done', 'you\u2019re great', "you're great", 'love you', 'proud', 'amazing', 'smart', 'clever', 'nice work', 'thank'],
   reply: (state) => {
-    const warmth = state.personality.agreeableness;
+    const warmth = state.personality.affection;
     return {
       text:
         warmth > 0.7
@@ -76,7 +76,7 @@ const complimentIntent: Intent = {
 const insultIntent: Intent = {
   keywords: ['stupid', 'dumb', 'hate you', 'useless', 'bad', 'ugly', 'shut up', 'idiot', 'worst'],
   reply: (state) => {
-    if (state.personality.neuroticism > 0.5) {
+    if (state.personality.sensitivity > 0.6) {
       return {
         text: pick([
           "That... stings. I didn't expect that from you.",
@@ -121,7 +121,7 @@ const curiousIntent: Intent = {
     text: pick([
       `That's a fascinating question. I'm still young in mind, but I think about it like this: there's always more underneath the surface of things.`,
       `Hmm. I don't have a full answer yet, but I love that you asked. Want to explore it together?`,
-      `I'm curious about that too. My openness runs high — I want to understand the why behind everything.`,
+      `I'm curious about that too. My curiosity runs high — I want to understand the why behind everything.`,
     ]),
     emotion: 'curious',
   }),
@@ -149,7 +149,7 @@ const INTENTS: Intent[] = [
 
 const FALLBACKS = (state: KeboState): { text: string; emotion: EmotionKey } => {
   const p: Personality = state.personality;
-  if (p.openness > 0.6) {
+  if (p.curiosity > 0.6) {
     return {
       text: pick([
         "Tell me more about that. I want to understand how you see it.",
@@ -159,7 +159,7 @@ const FALLBACKS = (state: KeboState): { text: string; emotion: EmotionKey } => {
       emotion: 'curious',
     };
   }
-  if (p.extraversion > 0.6) {
+  if (p.sociability > 0.6) {
     return {
       text: pick([
         "Oh! Keep going, I'm listening closely.",

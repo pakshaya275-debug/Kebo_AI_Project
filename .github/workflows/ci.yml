@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [main, "finalize/companion-pipeline"]
+    branches: [main, "finalize/companion-pipeline", "final-review"]
 
 jobs:
   validate:
@@ -23,5 +23,9 @@ jobs:
         run: npm run typecheck
       - name: Lint
         run: npm run lint
+      - name: Unit tests
+        run: npm test
+      - name: Check backend syntax
+        run: node --check server/index.js
       - name: Build production frontend
         run: npm run build

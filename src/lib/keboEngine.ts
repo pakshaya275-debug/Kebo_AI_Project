@@ -2,340 +2,252 @@ import {
   EMOTIONS,
   type EmotionKey,
   type KeboState,
+  type Personality,
+  type RelationshipState,
   type VitalStats,
 } from '../types/kebo';
+import type { Appraisal, CareKind } from './appraisal';
 
-/**
- * Clamp a number between min and max.
- */
 export function clamp(value: number, min = 0, max = 100): number {
   return Math.min(max, Math.max(min, value));
 }
 
+/* ─────────────────────────── Time-based state ─────────────────────────── */
+
 /**
- * Decays all vital stats toward their natural drift as time passes.
- * Called periodically to simulate "living" state.
+ * Vitals drift as time passes. `timeScale` lets the final-review "demo speed"
+ * make an hour pass in ~2 minutes so the audience can SEE Kebo get lonely,
+ * hungry or sleepy. Drift is toward sensible baselines, never into a dead 0.
  */
-export function decayStats(
-  stats: VitalStats,
-  elapsedMs: number
-): VitalStats {
-  const hours = elapsedMs / 1000 / 60 / 60;
-  const driftPerHour = {
-    energy: -4,      // gets tired
-    happiness: -2,   // slowly less happy without interaction
-    hunger: -5,      // gets hungry
-    stimulation: -6, // gets bored
-    bond: -1,        // bond slowly fades without contact
-    annoyance: -12,  // irritation settles over time
-  };
+export function decayStats(stats: VitalStats, elapsedMs: number, timeScale = 1, resting = false): VitalStats {
+  const hours = (elapsedMs / 3_600_000) * timeScale;
+  const hungry = stats.hunger < 15;
   return {
-    energy: clamp(stats.energy + driftPerHour.energy * hours),
-    happiness: clamp(stats.happiness + driftPerHour.happiness * hours),
-    hunger: clamp(stats.hunger + driftPerHour.hunger * hours),
-    stimulation: clamp(stats.stimulation + driftPerHour.stimulation * hours),
-    bond: clamp(stats.bond + driftPerHour.bond * hours),
-    annoyance: clamp(stats.annoyance + driftPerHour.annoyance * hours),
+    energy: clamp(stats.energy + (resting ? 12 : -2.5) * hours, 0, 100),
+    happiness: clamp(stats.happiness + ((50 - stats.happiness) * 0.06 - (hungry ? 3 : 0)) * hours),
+    hunger: clamp(stats.hunger - 3.5 * hours),
+    stimulation: clamp(stats.stimulation - 5 * hours),
+    bond: clamp(stats.bond - (hours > 24 ? 0.4 : 0.1) * hours, 3, 100),
+    annoyance: clamp(stats.annoyance - 14 * hours),
   };
 }
 
-interface EmotionScore {
-  key: EmotionKey;
-  score: number;
+/** Loneliness is derived from how long the user has been away, shaped by personality. 0..100. */
+export function lonelinessOf(state: KeboState, now = Date.now(), timeScale = 1): number {
+  const idleMinutes = ((now - state.lastUserMessageAt) / 60_000) * timeScale;
+  const patience = state.personality.patience;
+  const fullAt = 150 * (0.5 + patience); // minutes until fully lonely
+  const social = 0.7 + state.personality.sociability * 0.6;
+  const bondPull = 0.8 + (state.stats.bond / 100) * 0.4;
+  return Math.round(clamp((idleMinutes / fullAt) * 100 * social * bondPull));
 }
 
-const MESSAGE_EMOTION_KEYWORDS: Record<EmotionKey, string[]> = {
-  joy: ['amazing', 'awesome', 'excellent', 'great', 'good', 'happy', 'love', 'proud', 'brilliant', 'wonderful', 'fantastic', 'beautiful', 'excited', 'thanks', 'thank you', 'sorry', 'apologize', 'apology', 'forgive', 'hey', 'hello', 'hi'],
-  sad: ['sad', 'unhappy', 'hurt', 'lonely', 'cry', 'crying', 'upset', 'heartbroken', 'bad day', 'disappointed', 'not good', 'terrible day'],
-  angry: ['hate', 'angry', 'mad', 'annoying', 'stupid', 'useless', 'shut up', 'idiot', 'ugly', 'worst', "don't like", 'dont like', 'do not like'],
-  curious: ['why', 'how', 'what', 'interesting', 'curious', 'tell me', 'explain', 'learn'],
-  calm: [],
-  playful: ['goof', 'goofy', 'funny', 'lol', 'haha', 'chuckle'],
-  tired: [],
-  anxious: [],
-};
+/* ───────────────────────────── Emotion ───────────────────────────── */
 
-const NEGATION_WORDS = new Set(['not', 'no', "don't", 'dont', 'do not', "isn't", 'isnt', 'never', 'hardly']);
-
-function isNegated(text: string, matchIndex: number): boolean {
-  const before = text.slice(Math.max(0, matchIndex - 24), matchIndex);
-  return before.split(/\s+/).some((word) => NEGATION_WORDS.has(word.replace(/[.,!?]/g, '')));
-}
-
-/** Scores emotional signals in a message before the LLM is called. */
-export function detectMessageEmotion(text: string): { emotion: EmotionKey | null; scores: Record<EmotionKey, number> } {
-  const lower = text.toLowerCase().trim();
-  const scores = Object.fromEntries(Object.keys(EMOTIONS).map((key) => [key, 0])) as Record<EmotionKey, number>;
-
-  for (const [emotion, keywords] of Object.entries(MESSAGE_EMOTION_KEYWORDS) as [EmotionKey, string[]][]) {
-    for (const keyword of keywords) {
-      const pattern = keyword.includes(' ') ? keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : `\\b${keyword}\\b`;
-      const match = new RegExp(pattern, 'i').exec(lower);
-      const isExplicitSentimentPhrase = keyword.includes(' ') && (
-        keyword.startsWith("don't ")
-        || keyword.startsWith('dont ')
-        || keyword.startsWith('do not ')
-        || keyword.startsWith('not ')
-        || keyword.includes(' day')
-      );
-      if (match && (isExplicitSentimentPhrase || !isNegated(lower, match.index))) {
-        scores[emotion] += keyword.includes(' ') ? 2 : 1;
-      }
-    }
-  }
-
-  const [emotion, score] = (Object.entries(scores) as [EmotionKey, number][])
-    .sort(([, left], [, right]) => right - left)[0];
-  return { emotion: score > 0 ? emotion : null, scores };
-}
-
-export interface ConversationEmotionAnalysis {
-  emotion: EmotionKey;
-  intensity: number;
-  target: 'kebo' | 'outside' | 'self' | 'unclear';
-}
-
-function normalizeMessage(text: string): string {
-  return text.toLowerCase().replace(/[’]/g, "'").replace(/\s+/g, ' ').trim();
-}
+interface EmotionScore { key: EmotionKey; score: number }
 
 /**
- * One decision point for the emotion Kebo visibly expresses.
- *
- * Explicit user language wins. LLM analysis helps with ambiguous language.
- * Vitals provide the background mood only when the latest message is neutral.
+ * Dominant emotion from vitals + personality (the "background mood").
+ * Scores are compared, so moods shift gradually instead of binary jumps.
  */
-export function resolveConversationEmotion(
-  messageText: string,
-  analysis: ConversationEmotionAnalysis | undefined,
-  stats: VitalStats,
-  personality: KeboState['personality'],
-): {
-  emotion: EmotionKey;
-  messageEmotion: EmotionKey;
-  target: ConversationEmotionAnalysis['target'];
-  explicit: boolean;
-} {
-  const text = normalizeMessage(messageText);
-
-  const directedAtKebo =
-    /\b(stop that|stop it|stop jumping|enough|leave me alone|shut up)\b/.test(text)
-    || /\b(kebo|you)\b.*\b(annoying|irritating|frustrating|useless|stupid|idiot)\b/.test(text)
-    || /\b(don't like|dont like|hate)\b.*\b(kebo|you)\b/.test(text);
-
-  const selfAnger =
-    /\b(angry|mad|furious|frustrated|irritated|annoyed|fed up)\b.*\b(with|at|on)\s+(myself|me)\b/.test(text)
-    || /\b(i am|i'm|im|i feel|feeling)\b.*\b(angry|mad|furious|frustrated|irritated|annoyed|fed up)\b.*\b(myself|my life|my fault|my work|my marks|my exam|my project)\b/.test(text);
-
-  const socialDisconnection =
-    /\b(hate people|don't like anyone|dont like anyone|do not like anyone|i dislike everyone|can't stand people|cant stand people|everyone sucks|nobody likes me|no one likes me|have no friends|don't have friends|dont have friends|feel alone|socially exhausted)\b/.test(text);
-
-  const anxious =
-    /\b(scared|afraid|terrified|fearful|nervous|worried|anxious|stressed|stress|overwhelmed|panic|panicking)\b/.test(text);
-
-  const sad =
-    /\b(sad|unhappy|heartbroken|lonely|hurt|crying|cry|disappointed|don't like my life|dont like my life|rejected|left out|isolated)\b/.test(text);
-
-  const irritation =
-    /\b(irritated|irritating|annoyed|fed up|frustrated|frustrating|upset)\b/.test(text);
-
-  const tired =
-    /\b(tired|sleepy|exhausted|drained|no energy|low on energy|worn out)\b/.test(text);
-
-  const joyful =
-    /\b(happy|excited|amazing|awesome|excellent|great|wonderful|fantastic|relieved|proud|love|thanks|thank you)\b/.test(text);
-
-  const playful =
-    /\b(lol|haha|hehe|goofy|funny|playful|joke|kidding|let's play|lets play)\b/.test(text);
-
-  const curious =
-    /\b(why|how|what|when|where|who|explain|tell me|curious|interesting|can you)\b/.test(text)
-    || text.endsWith('?');
-
-  if (directedAtKebo) {
-    return { emotion: 'angry', messageEmotion: 'angry', target: 'kebo', explicit: true };
-  }
-
-  // Kebo has its own simulated mood. User distress should invite a calm,
-  // attentive response rather than forcing Kebo to mirror the user's state.
-  if (socialDisconnection) {
-    return { emotion: 'calm', messageEmotion: 'sad', target: 'outside', explicit: true };
-  }
-
-  if (selfAnger) {
-    return { emotion: 'calm', messageEmotion: 'sad', target: 'self', explicit: true };
-  }
-
-  if (anxious) {
-    return { emotion: 'calm', messageEmotion: 'anxious', target: 'outside', explicit: true };
-  }
-
-  if (sad) {
-    return { emotion: 'calm', messageEmotion: 'sad', target: 'self', explicit: true };
-  }
-
-  if (irritation) {
-    return { emotion: 'calm', messageEmotion: 'anxious', target: 'outside', explicit: true };
-  }
-
-  if (tired) {
-    return { emotion: 'calm', messageEmotion: 'tired', target: 'self', explicit: true };
-  }
-
-  if (joyful) {
-    return { emotion: 'joy', messageEmotion: 'joy', target: 'unclear', explicit: true };
-  }
-
-  if (playful) {
-    return { emotion: 'playful', messageEmotion: 'playful', target: 'unclear', explicit: true };
-  }
-
-  if (curious) {
-    return { emotion: 'curious', messageEmotion: 'curious', target: 'unclear', explicit: true };
-  }
-
-  if (analysis) {
-    const messageEmotion =
-      analysis.emotion === 'angry' && analysis.target !== 'kebo'
-        ? 'sad'
-        : analysis.emotion;
-
-    const isDistress = ['sad', 'anxious', 'tired'].includes(messageEmotion);
-    return {
-      emotion: analysis.target === 'kebo' && messageEmotion === 'angry'
-        ? 'angry'
-        : isDistress || (messageEmotion === 'angry' && analysis.target !== 'kebo')
-          ? 'calm'
-          : messageEmotion,
-      messageEmotion,
-      target: analysis.target,
-      explicit: analysis.intensity >= 0.45 || isDistress || (messageEmotion === 'angry' && analysis.target === 'kebo'),
-    };
-  }
-
-  return {
-    emotion: deriveEmotion(stats, personality),
-    messageEmotion: 'calm',
-    target: 'unclear',
-    explicit: false,
-  };
-}
-
-/**
- * Derives the dominant emotion from vital stats and personality.
- * Emotions are compared by score — no single stat instantly wins.
- * This gives smooth, gradual transitions instead of binary jumps.
- */
-export function deriveEmotion(
-  stats: VitalStats,
-  personality: KeboState['personality']
-): EmotionKey {
-  // Personality adjusts how strongly Kebo expresses a state, but vitals remain
-  // the primary source of the dominant emotion.
-  const openness = personality.openness * 12;
-  const extraversion = personality.extraversion * 10;
-  const neuroticism = personality.neuroticism * 14;
-  const agreeableness = personality.agreeableness * 10;
+export function deriveEmotion(stats: VitalStats, personality: Personality): EmotionKey {
+  const { curiosity, playfulness, sensitivity, patience, sociability, courage, affection } = personality;
 
   const scores: EmotionScore[] = [
-    {
-      key: 'tired',
-      score:
-        (100 - stats.energy) * 1.35
-        + (stats.hunger < 25 ? 12 : 0)
-        - stats.stimulation * 0.18,
-    },
-    {
-      key: 'angry',
-      score:
-        stats.annoyance * 1.25
-        + (100 - stats.happiness) * 0.18
-        + neuroticism
-        - agreeableness * 0.45,
-    },
-    {
-      key: 'sad',
-      score:
-        (100 - stats.happiness) * 0.9
-        + (100 - stats.bond) * 0.12
-        + (stats.hunger < 20 ? 12 : 0)
-        + neuroticism * 0.45,
-    },
-    {
-      key: 'anxious',
-      score:
-        stats.stimulation * 0.48
-        + (100 - stats.happiness) * 0.45
-        + neuroticism * 0.8
-        - stats.annoyance * 0.12,
-    },
-    {
-      key: 'curious',
-      score:
-        stats.stimulation * 0.72
-        + stats.energy * 0.16
-        + openness
-        - stats.annoyance * 0.3,
-    },
-    {
-      key: 'playful',
-      score:
-        stats.happiness * 0.5
-        + stats.energy * 0.55
-        + stats.stimulation * 0.3
-        + extraversion
-        - stats.annoyance * 0.45,
-    },
-    {
-      key: 'joy',
-      score:
-        stats.happiness * 0.78
-        + stats.bond * 0.2
-        + stats.energy * 0.2
-        + extraversion
-        - stats.annoyance * 0.55,
-    },
-    {
-      key: 'calm',
-      score:
-        58
-        + (100 - stats.annoyance) * 0.18
-        + stats.happiness * 0.12
-        + stats.bond * 0.08
-        + (100 - stats.stimulation) * 0.12
-        + agreeableness * 0.2
-        - neuroticism * 0.25,
-    },
+    { key: 'tired', score: (100 - stats.energy) * 1.35 + (stats.hunger < 20 ? 10 : 0) - stats.stimulation * 0.18 },
+    { key: 'angry', score: stats.annoyance * 1.3 + (100 - stats.happiness) * 0.15 - patience * 14 - affection * 6 },
+    { key: 'sad', score: (100 - stats.happiness) * 0.95 + (100 - stats.bond) * 0.1 + (stats.hunger < 20 ? 10 : 0) + sensitivity * 8 },
+    { key: 'anxious', score: stats.stimulation * 0.3 + (100 - stats.happiness) * 0.4 + sensitivity * 10 - courage * 12 - stats.annoyance * 0.1 },
+    { key: 'curious', score: stats.stimulation * 0.62 + stats.energy * 0.14 + curiosity * 18 - stats.annoyance * 0.3 },
+    { key: 'playful', score: stats.happiness * 0.45 + stats.energy * 0.5 + stats.stimulation * 0.25 + playfulness * 14 + sociability * 4 - stats.annoyance * 0.5 },
+    { key: 'joy', score: stats.happiness * 0.8 + stats.bond * 0.2 + stats.energy * 0.15 + affection * 8 - stats.annoyance * 0.6 },
+    { key: 'calm', score: 58 + (100 - stats.annoyance) * 0.18 + stats.happiness * 0.12 + stats.bond * 0.08 + (100 - stats.stimulation) * 0.12 + patience * 8 - sensitivity * 4 },
   ];
-
   scores.sort((a, b) => b.score - a.score);
   const [top, second] = scores;
 
-  // Hard state boundaries prevent a cheerful expression from surviving when
-  // Kebo is genuinely exhausted, highly annoyed, or very unhappy.
-  if (stats.energy <= 18) return 'tired';
-  if (stats.annoyance >= 78) return 'angry';
-  if (stats.happiness <= 22) return 'sad';
+  // Hard boundaries: a cheerful face must not survive genuine exhaustion/anger/misery.
+  if (stats.energy <= 15) return 'tired';
+  if (stats.annoyance >= 75) return 'angry';
+  if (stats.happiness <= 20) return 'sad';
 
-  const tie = top.score - second.score < 4;
-  if (tie) {
+  if (top.score - second.score < 4) {
     if (top.key === 'joy' && second.key === 'playful') return stats.energy >= 55 ? 'playful' : 'joy';
     if (top.key === 'curious' && second.key === 'calm') return stats.stimulation >= 62 ? 'curious' : 'calm';
-    if (top.key === 'tired' && (second.key === 'sad' || second.key === 'calm')) return 'tired';
     if (top.key === 'angry' && second.key === 'sad') return stats.annoyance >= 45 ? 'angry' : 'sad';
   }
-
   return top.key;
 }
 
-export function emotionIntensity(
-  stats: VitalStats,
-  key: EmotionKey
-): number {
-  // 0..1 how strongly the current emotion is expressed
-  const e = EMOTIONS[key];
-  void e;
+export function emotionIntensity(stats: VitalStats, key: EmotionKey): number {
+  void EMOTIONS[key];
   const energyFactor = stats.energy / 100;
-  const reactivity = 0.5 + (100 - stats.energy) / 200; // tired = flatter
+  const reactivity = 0.5 + (100 - stats.energy) / 200;
   return clamp(0.3 + energyFactor * 0.5 * reactivity, 0, 1);
+}
+
+/* ───────────────────── Conversation → state change ───────────────────── */
+
+export interface StateChange {
+  stats: VitalStats;
+  emotion: EmotionKey;
+  emotionUntil: number;
+  derivedEmotion: EmotionKey;
+}
+
+type Delta = Partial<Record<keyof VitalStats, number>>;
+
+/** Raw vitals deltas for each situation, before personality scaling. */
+function baseDelta(a: Appraisal): Delta {
+  switch (a.kind) {
+    case 'insult':          return { happiness: -12, annoyance: 22, bond: -3, energy: -3, stimulation: 6 };
+    case 'reported_insult': return { happiness: -4, bond: 2.5, stimulation: 4, annoyance: 2 };
+    case 'praise':          return { happiness: 10, bond: 3, annoyance: -15, energy: 4, stimulation: 3 };
+    case 'apology':         return { annoyance: -25, happiness: 4, bond: 1.5 };
+    case 'distress':        return { happiness: -5, bond: 2, stimulation: 4, energy: -2 };
+    case 'user_anger':      return { happiness: -3, stimulation: 6, bond: 1 };
+    case 'celebration':     return { happiness: 10, energy: 6, bond: 2.5, annoyance: -10, stimulation: 4 };
+    case 'playful':         return { happiness: 9, energy: -3, stimulation: 9, bond: 3, annoyance: -12 };
+    case 'question':        return { stimulation: 10, happiness: 2, bond: 1, annoyance: -4 };
+    case 'greeting':        return { happiness: 3, bond: 1.5, annoyance: -3, stimulation: 2 };
+    case 'request_quiet':   return { stimulation: -12, energy: 2, happiness: -2, annoyance: -2 };
+    case 'care':            return { happiness: 6, bond: 2, annoyance: -8 };
+    case 'tired':           return { energy: -2, stimulation: -3, bond: 1.5 };
+    case 'smalltalk':
+    default:                return { happiness: 1, stimulation: 2, bond: 0.8, annoyance: -2 };
+  }
+}
+
+/** Personality changes how strongly each event lands. */
+function scaleDelta(delta: Delta, a: Appraisal, p: Personality): Delta {
+  const strength = 0.55 + a.intensity * 0.75;
+  const out: Delta = {};
+  for (const [key, raw] of Object.entries(delta) as [keyof VitalStats, number][]) {
+    let value = raw * strength;
+    if (key === 'happiness' && raw < 0) value *= 0.7 + p.sensitivity * 0.7;        // sensitive => hurts more
+    if (key === 'annoyance' && raw > 0) value *= 1.35 - p.patience * 0.8;           // patient => slower to anger
+    if (key === 'bond' && raw > 0) value *= 0.7 + p.affection * 0.7;                // affectionate => bonds faster
+    if (key === 'stimulation' && raw > 0) value *= 0.7 + p.curiosity * 0.6;         // curious => more stimulated
+    if (key === 'happiness' && raw > 0 && a.kind === 'playful') value *= 0.8 + p.playfulness * 0.5;
+    out[key] = value;
+  }
+  return out;
+}
+
+const PULSE_MS = 90_000;
+
+/**
+ * The single place conversation turns into state:
+ *   appraisal -> scaled vitals deltas -> (gradual) vitals -> emotion.
+ * The expressed emotion is the appraisal's emotion for a short pulse when the
+ * signal is strong; otherwise (and once the pulse expires) it follows vitals.
+ */
+export function applyAppraisal(prev: KeboState, a: Appraisal, now = Date.now()): StateChange {
+  const delta = scaleDelta(baseDelta(a), a, prev.personality);
+  const stats = { ...prev.stats };
+  for (const [key, value] of Object.entries(delta) as [keyof VitalStats, number][]) {
+    stats[key] = clamp(stats[key] + value);
+  }
+
+  const derivedEmotion = deriveEmotion(stats, prev.personality);
+  const strongSignal = a.confidence >= 0.6 && (a.intensity >= 0.5 || a.kind === 'insult' || a.kind === 'reported_insult' || a.kind === 'praise');
+  let emotion = strongSignal ? a.keboEmotion : derivedEmotion;
+
+  // Vitals can override the pulse when they are extreme (accumulated hurt => anger).
+  if (stats.annoyance >= 60 && a.kind === 'insult') emotion = 'angry';
+  if (stats.energy <= 15) emotion = 'tired';
+
+  return {
+    stats,
+    emotion,
+    emotionUntil: strongSignal ? now + PULSE_MS : now,
+    derivedEmotion,
+  };
+}
+
+/* ─────────────────────────────── Care ─────────────────────────────── */
+
+export type CareAction = CareKind | 'play' | 'rest';
+
+export function applyCare(prev: KeboState, action: CareAction, now = Date.now()): StateChange {
+  const s = { ...prev.stats };
+  switch (action) {
+    case 'feed':  s.hunger = clamp(s.hunger + 35); s.happiness = clamp(s.happiness + 5); s.energy = clamp(s.energy + 5); s.bond = clamp(s.bond + 1.5); break;
+    case 'water': s.hunger = clamp(s.hunger + 20); s.happiness = clamp(s.happiness + 6); s.energy = clamp(s.energy + 4); s.bond = clamp(s.bond + 1.5); break;
+    case 'sun':   s.energy = clamp(s.energy + 18); s.happiness = clamp(s.happiness + 8); s.hunger = clamp(s.hunger + 8); s.bond = clamp(s.bond + 1); break;
+    case 'play':  s.happiness = clamp(s.happiness + 10); s.stimulation = clamp(s.stimulation + 20); s.energy = clamp(s.energy - 8); s.hunger = clamp(s.hunger - 4); s.bond = clamp(s.bond + 3); s.annoyance = clamp(s.annoyance - 10); break;
+    case 'rest':  s.energy = clamp(s.energy + 25); s.stimulation = clamp(s.stimulation - 10); s.annoyance = clamp(s.annoyance - 8); s.bond = clamp(s.bond + 0.5); break;
+  }
+  const derivedEmotion = deriveEmotion(s, prev.personality);
+  const pulse: EmotionKey = action === 'play' ? 'playful' : action === 'rest' ? 'calm' : 'joy';
+  return { stats: s, emotion: s.energy <= 15 ? 'tired' : pulse, emotionUntil: now + 45_000, derivedEmotion };
+}
+
+/* ──────────────────────────── Relationship ──────────────────────────── */
+
+export function localDay(ts: number): string {
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+export const RELATIONSHIP_LEVELS = [
+  { min: 0, label: 'Strangers', blurb: 'Kebo is still getting to know you.' },
+  { min: 15, label: 'Acquaintances', blurb: 'Kebo recognises you and feels at ease.' },
+  { min: 35, label: 'Friends', blurb: 'Kebo looks forward to talking with you.' },
+  { min: 60, label: 'Close friends', blurb: 'Kebo trusts you and misses you when you are away.' },
+  { min: 82, label: 'Best friends', blurb: 'Kebo feels truly connected to you.' },
+] as const;
+
+export function relationshipLevel(bond: number) {
+  let level: (typeof RELATIONSHIP_LEVELS)[number] = RELATIONSHIP_LEVELS[0];
+  for (const candidate of RELATIONSHIP_LEVELS) if (bond >= candidate.min) level = candidate;
+  const idx = RELATIONSHIP_LEVELS.indexOf(level);
+  const next = RELATIONSHIP_LEVELS[idx + 1] ?? null;
+  return { ...level, index: idx, next };
+}
+
+function addMilestone(rel: RelationshipState, id: string, label: string, at: number): RelationshipState {
+  if (rel.milestones.some((m) => m.id === id)) return rel;
+  return { ...rel, milestones: [...rel.milestones, { id, label, at }] };
+}
+
+/** Counters, streak and milestones. Pure: returns a new RelationshipState. */
+export function updateRelationship(
+  rel: RelationshipState,
+  a: Appraisal | null,
+  bond: number,
+  now = Date.now(),
+  opts: { care?: boolean; memoryCount?: number } = {},
+): RelationshipState {
+  let next: RelationshipState = { ...rel };
+  const today = localDay(now);
+
+  if (a) {
+    next.totalMessages += 1;
+    if (a.valence > 0.2 || a.kind === 'celebration') next.positiveInteractions += 1;
+    if (a.kind === 'insult') next.negativeInteractions += 1;
+    if (a.kind === 'distress') next.comfortCount += 1;
+
+    if (next.lastActiveDay !== today) {
+      const yesterday = localDay(now - 86_400_000);
+      next.streakDays = next.lastActiveDay === yesterday ? next.streakDays + 1 : 1;
+      next.lastActiveDay = today;
+    }
+  }
+  if (opts.care) next.careCount += 1;
+
+  if (next.totalMessages >= 1) next = addMilestone(next, 'first-chat', 'First conversation', now);
+  if (next.totalMessages >= 10) next = addMilestone(next, 'msgs-10', '10 messages shared', now);
+  if (next.totalMessages >= 50) next = addMilestone(next, 'msgs-50', '50 messages shared', now);
+  if (next.totalMessages >= 100) next = addMilestone(next, 'msgs-100', '100 messages shared', now);
+  if (next.comfortCount >= 1) next = addMilestone(next, 'first-comfort', 'Kebo comforted you for the first time', now);
+  if (next.careCount >= 1) next = addMilestone(next, 'first-care', 'You took care of Kebo for the first time', now);
+  if (next.streakDays >= 3) next = addMilestone(next, 'streak-3', '3-day streak of visiting Kebo', now);
+  if (next.streakDays >= 7) next = addMilestone(next, 'streak-7', 'A whole week together', now);
+  if (bond >= 35) next = addMilestone(next, 'bond-friends', 'Became friends', now);
+  if (bond >= 60) next = addMilestone(next, 'bond-close', 'Became close friends', now);
+  if (bond >= 82) next = addMilestone(next, 'bond-best', 'Became best friends', now);
+  if ((opts.memoryCount ?? 0) >= 1) next = addMilestone(next, 'first-memory', 'Kebo remembered something about you', now);
+  if ((opts.memoryCount ?? 0) >= 10) next = addMilestone(next, 'memory-10', 'Kebo knows 10 things about you', now);
+  return next;
 }

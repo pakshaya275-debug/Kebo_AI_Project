@@ -227,8 +227,18 @@ export function useKebo() {
       .then((remote) => {
         if (!active || !remote) return;
         remoteMemoriesLoaded.current = true;
-        setMemories(remote);
-        memoriesRef.current = remote;
+        // Merge: remote wins on content, but local-only fields (follow-up flag, "added by you")
+        // and memories created offline are kept.
+        const local = new Map(memoriesRef.current.map((m) => [m.id, m]));
+        const merged = remote.map((m) => {
+          const mine = local.get(m.id);
+          return mine ? { ...m, followedUpAt: mine.followedUpAt, source: mine.source === 'manual' ? 'manual' as const : m.source } : m;
+        });
+        const remoteIds = new Set(remote.map((m) => m.id));
+        for (const m of memoriesRef.current) if (!remoteIds.has(m.id)) merged.push(m);
+        merged.sort((a, b) => a.createdAt - b.createdAt);
+        setMemories(merged);
+        memoriesRef.current = merged;
       })
       .catch((error) => {
         remoteMemoriesLoaded.current = true;

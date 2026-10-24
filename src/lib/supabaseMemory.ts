@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import type { KeboMemory } from './memory';
+import { eventTopic, type KeboMemory } from './memory';
 
 interface SupabaseMemoryRow {
   id: string;
@@ -17,17 +17,23 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const DEVICE_KEY = 'kebo-device-id-v1';
 
-const client: SupabaseClient | null = supabaseUrl && supabaseAnonKey
-  ? createClient(supabaseUrl, supabaseAnonKey)
-  : null;
-
 function getDeviceId(): string {
-  const existing = localStorage.getItem(DEVICE_KEY);
-  if (existing) return existing;
-  const id = crypto.randomUUID();
-  localStorage.setItem(DEVICE_KEY, id);
-  return id;
+  try {
+    const existing = localStorage.getItem(DEVICE_KEY);
+    if (existing) return existing;
+    const id = crypto.randomUUID();
+    localStorage.setItem(DEVICE_KEY, id);
+    return id;
+  } catch {
+    return 'ephemeral-device';
+  }
 }
+
+// The device id is also sent as a header so the optional hardened policy in
+// supabase/memory_hardening.sql can restrict every row to its own device.
+const client: SupabaseClient | null = supabaseUrl && supabaseAnonKey
+  ? createClient(supabaseUrl, supabaseAnonKey, { global: { headers: { 'x-device-id': getDeviceId() } } })
+  : null;
 
 function fromRow(row: SupabaseMemoryRow): KeboMemory {
   return {
@@ -39,6 +45,7 @@ function fromRow(row: SupabaseMemoryRow): KeboMemory {
     source: row.source,
     createdAt: Date.parse(row.created_at),
     lastUsedAt: Date.parse(row.last_used_at),
+    ...(row.type === 'event' && eventTopic(row.text) ? { topic: eventTopic(row.text) } : {}),
   };
 }
 
@@ -59,21 +66,35 @@ export async function loadRemoteMemories(): Promise<KeboMemory[] | null> {
 }
 
 export async function saveRemoteMemories(memories: KeboMemory[]): Promise<void> {
-  if (!client || memories.length === 0) return;
+  if (!client) return;
   const deviceId = getDeviceId();
-  const rows = memories.slice(-100).map((memory) => ({
-    id: memory.id,
-    device_id: deviceId,
-    text: memory.text,
-    type: memory.type,
-    importance: memory.importance,
-    confidence: memory.confidence,
-    source: memory.source,
-    created_at: new Date(memory.createdAt).toISOString(),
-    last_used_at: new Date(memory.lastUsedAt).toISOString(),
-  }));
-  const { error } = await client.from('kebo_memories').upsert(rows, { onConflict: 'id' });
-  if (error) throw error;
+  const kept = memories.slice(-100);
+  if (kept.length > 0) {
+    const rows = kept.map((memory) => ({
+      id: memory.id,
+      device_id: deviceId,
+      text: memory.text,
+      type: memory.type,
+      importance: memory.importance,
+      confidence: memory.confidence,
+      // The original table only allows these two sources; manual memories are stored as user-provided.
+      source: memory.source === 'manual' ? 'user_message' : memory.source,
+      created_at: new Date(memory.createdAt).toISOString(),
+      last_used_at: new Date(memory.lastUsedAt).toISOString(),
+    }));
+    const { error } = await client.from('kebo_memories').upsert(rows, { onConflict: 'id' });
+    if (error) throw error;
+  }
+
+  // Propagate deletions: remove remote rows that no longer exist locally.
+  const { data: remote, error: listError } = await client.from('kebo_memories').select('id').eq('device_id', deviceId).limit(500);
+  if (listError) throw listError;
+  const keep = new Set(kept.map((memory) => memory.id));
+  const stale = (remote || []).map((row) => row.id as string).filter((id) => !keep.has(id));
+  if (stale.length > 0) {
+    const { error } = await client.from('kebo_memories').delete().eq('device_id', deviceId).in('id', stale);
+    if (error) throw error;
+  }
 }
 
 export async function clearRemoteMemories(): Promise<void> {
